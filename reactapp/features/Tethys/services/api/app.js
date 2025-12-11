@@ -1,5 +1,4 @@
 import apiClient from "features/Tethys/services/api/client";
-import tethysAPI from "features/Tethys/services/api/tethys";
 
 const APP_ROOT_URL = process.env.TETHYS_APP_ROOT_URL;
 

@@ -45,14 +45,10 @@ Define the env variables and running the container
 
 ```bash
 # Set environment variables
-export TETHYS_CONTAINER_NAME="tethys-ngen-portal"        \
-       TETHYS_REPO="awiciroh/tethys-ngiab"               \
+export TETHYS_CONTAINER_NAME="tethys-nrds"        \
+       TETHYS_REPO="awiciroh/tethys-nrds"               \
        TETHYS_TAG="latest"                               \
        NGINX_PORT=80                                     \
-       MODELS_RUNS_DIRECTORY="$HOME/ngiab_visualizer"    \
-       DATASTREAM_DIRECTORY="$HOME/.datastream_ngiab"    \
-       VISUALIZER_CONF="$MODELS_RUNS_DIRECTORY/ngiab_visualizer.json" \
-       TETHYS_PERSIST_PATH="/var/lib/tethys_persist"     \
        SKIP_DB_SETUP=false                               \
        CSRF_TRUSTED_ORIGINS="[\"http://localhost:${NGINX_PORT}\",\"http://127.0.0.1:${NGINX_PORT}\"]"
 ```
@@ -62,8 +58,6 @@ export TETHYS_CONTAINER_NAME="tethys-ngen-portal"        \
 docker run --rm -d \
   -p "$NGINX_PORT:$NGINX_PORT" \
   --name "$TETHYS_CONTAINER_NAME" \
-  -e MEDIA_ROOT="$TETHYS_PERSIST_PATH/media" \
-  -e MEDIA_URL="/media/" \
   -e SKIP_DB_SETUP="$SKIP_DB_SETUP" \
   -e NGINX_PORT="$NGINX_PORT" \
   -e CSRF_TRUSTED_ORIGINS="$CSRF_TRUSTED_ORIGINS" \
