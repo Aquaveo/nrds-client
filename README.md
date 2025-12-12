@@ -1,4 +1,5 @@
-# Ngen Research Datastream Visualizer
+
+# NextGen Research Datastream (NRDS) Visualizer
 
 | | |
 | --- | --- |
@@ -6,36 +7,21 @@
 
 This app was created using an experimental Tethys + React app scaffold. It uses React for the frontend of the app and Tethys as the backend.
 
-![Data Visualizer Interface](static/imgs/fig6-1.png)
+![GeoSpatial Visualization](static/imgs/nrds-fig-1.png)
 
-The Data Visualizer component provides:
-- **Geospatial visualization** of catchments and nexus points
-- **Time series analysis** of catchments, nexus points, and troute variables
-- **TEEHR output visualization** including metrics and interactive plots
+- **Geospatial visualization** of catchments, nexus points, flowpaths, and conus gauges
+- **Time series analysis** of catchments and nexus points
 
 Built on the Tethys Platform [(Swain et al., 2015)](https://doi.org/10.1016/j.envsoft.2015.01.014), it enables web-based exploration of model outputs [(CIROH, 2025)](https://github.com/CIROH-UA/ngiab-client).
 
 ## Usage Guide
 
-### Assited using `ViewOnTethys` Script
+### Assited using `launchApp` Script
 
-Like TEEHR, the Data Visualizer can be activated upon execution of the main NGIAB guide script, `guide.sh`. A separate `viewOnTethys.sh` script is also available in the NGIAB-CloudInfra repository.
+One of the advantages of the `launchApp.sh` script is that it allows the user to run the application inside a container, so no need to install extra python dependencies or npm packages
 
-One of the advantages of the `viewOnTethys.sh` script is that it allows the user to keep multiple outputs for the same hydrofabric. It prompts the user if they want to use the same output directory by renaming it and adding it to the collection of outputs or if they want to overwrite it.
-
-```bash
-  ⚠ ~/ngiab_visualizer is not empty.
-  → Keep (K) or Fresh start (F)? [K/F]: k
-ℹ Reclaiming ownership of ~/ngiab_visualizer  (sudo may prompt)…
-  ⚠ Directory exists: ~/ngiab_visualizer/gage-10154200
-  → Overwrite (O) or Duplicate (D)? [O/D]: o
-  ✓ Overwritten ➜ ~/ngiab_visualizer/gage-10154200
-Checking for ~/ngiab_visualizer/ngiab_visualizer.json...
-```
 
 You should be able to see multiple outputs through the UI:
-
-![Figure 2: NGIAB Visualizer dropdown for multiple outputs ](static/imgs/fig6-2.png){alt='A screenshot of the  NGIAB and DataStream Visualizer web interface. The map displays the ability of the visualizer to use multiple outputs'}
 
 
 ### Unassisted Usage
@@ -45,8 +31,8 @@ Define the env variables and running the container
 
 ```bash
 # Set environment variables
-export TETHYS_CONTAINER_NAME="tethys-nrds"        \
-       TETHYS_REPO="awiciroh/tethys-nrds"               \
+export TETHYS_CONTAINER_NAME="tethys-nrds"               \
+       TETHYS_REPO="awiciroh/tethys-nrds"                \
        TETHYS_TAG="latest"                               \
        NGINX_PORT=80                                     \
        SKIP_DB_SETUP=false                               \
@@ -78,19 +64,18 @@ Access at: http://localhost:80
 
 **Nexus** points can be visualized when the user selects the output that wants to visualize. Time series can be retrieved by clicking on any of the **Nexus** points, or by changing the select dropdown assigned to the Nexus. 
 
-![Figure 3: NGIAB Visualizer time series visualization from Nexus points](static/imgs/fig6-3.png){alt='A screenshot of the  NextGen Research DataStream Visualizer web interface. The map displays the ability of the visualizer to retrieve time series from Nexus points'}
-
-![Figure 4: NGIAB Visualizer time series visualization from Troute variables](static/imgs/fig6-4.png){alt='A screenshot of the NGIAB and DataStream Visualizer web interface. The map displays the ability of the visualizer to retrieve time series from Troute variables'}
+![Figure 2: NRDS Visualizer time series visualization from Nexus points](static/imgs/nrds-fig-2.png){alt='A screenshot of the  NextGen Research DataStream Visualizer web interface. The map displays the ability of the visualizer to retrieve time series from Nexus points'}
 
 **Catchments** time series can be retrieved by clicking on any of the **Catchments** polygons, or by changing the select dropdown assigned to the Catchments.
 
-![Figure 6: A map showing the geospatial visualization using the Data Visualizer within the Tethys framework for a selected outlet nexus point as well as displaying a time series plot between observed (labeled “USGS”; blue line) and simulated (labeled “ngen”; orange line)](static/imgs/fig6-6.png){alt='alt='A screenshot of the  NGIAB and DataStream Visualizer web interface. The left panel contains a "Time Series Menu" where the user can select a Nexus ID, variable (e.g., flow), and TEEHR data source. A map in the center displays a stream reach with a highlighted section representing the drainage basin and a blue point, indicating the selected nexus location. Below the map, a time series plot compares USGS (blue line) and Ngen (orange line) streamflow data from 2017 to 2023.'}
+![Figure 3: NRDS Visualizer time series visualization from Catchments ](static/imgs/nrds-fig-3.png){alt='alt='A screenshot of the  NextGen Research DataStream Visualizer web interface. The map displays the ability of the visualizer to retrieve time series from Catchments' }
+
+
+Data from CFE_NOM and LSTM can be retrieved for the avaialble forecasts for the **Nexus** and **Catcments**
 
 
 This functionality allows the user to be able to quicklu search the data they want from the [S3 bucket](https://datastream.ciroh.org/index.html) containing the output of the [NextGen DataStream](https://github.com/CIROH-UA/ngen-datastream). They can explore and download as needed.
 
-
-![Figure 8: NGIAB Visualizer Visualization of DataStream Data](static/imgs/fig6-8.png){alt='A screenshot of the  NGIAB and DataStream Visualizer web interface displaying the hydrofabric for DataStream output'}
 
 ## Development Installation
 
