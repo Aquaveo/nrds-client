@@ -64,12 +64,10 @@ Access at: http://localhost:80
 
 **Nexus** points can be visualized when the user selects the output that wants to visualize. Time series can be retrieved by clicking on any of the **Nexus** points, or by changing the select dropdown assigned to the Nexus. 
 
-![Figure 2: NRDS Visualizer time series visualization from Nexus points](static/imgs/nrds-fig-2.png){alt='A screenshot of the  NextGen Research DataStream Visualizer web interface. The map displays the ability of the visualizer to retrieve time series from Nexus points'}
-
+![Figure 2: NRDS Visualizer time series visualization from Nexus points](static/imgs/nrds-fig-2.png)
 **Catchments** time series can be retrieved by clicking on any of the **Catchments** polygons, or by changing the select dropdown assigned to the Catchments.
 
-![Figure 3: NRDS Visualizer time series visualization from Catchments ](static/imgs/nrds-fig-3.png){alt='alt='A screenshot of the  NextGen Research DataStream Visualizer web interface. The map displays the ability of the visualizer to retrieve time series from Catchments' }
-
+![Figure 3: NRDS Visualizer time series visualization from Catchments ](static/imgs/nrds-fig-3.png)
 
 Data from CFE_NOM and LSTM can be retrieved for the avaialble forecasts for the **Nexus** and **Catcments**
 
