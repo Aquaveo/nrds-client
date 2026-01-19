@@ -1,0 +1,162 @@
+/* TimeSlider.css */
+
+/* Panel container (your <div className="panel" id="timePanel">) */
+.panel {
+  background: var(--bg-tertiary, #1a2332);
+  border: 1px solid var(--border-color, #2a3a4a);
+  border-radius: var(--radius-lg, 8px);
+  padding: var(--space-md, 16px);
+  margin-bottom: var(--space-md, 16px);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  width: 20%;
+
+  bottom: 60px;
+  left: 1%;
+  position: absolute;
+  margin-top: 10px;
+
+  z-index: 1001;
+
+}
+
+/* "Time Control" header row */
+.panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #8899aa);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+}
+
+.panel-title svg {
+  width: var(--space-md, 16px);
+  height: var(--space-md, 16px);
+}
+
+/* Time slider block */
+.time-control {
+  margin-top: 12px;
+}
+
+.time-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm, 8px);
+}
+
+.time-label {
+  font-size: 12px;
+  color: var(--text-secondary, #8899aa);
+}
+
+.time-value {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 14px;
+  color: var(--accent-primary, #00d4ff);
+}
+
+/* Range slider styling */
+input[type="range"] {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-primary, #0a0e14);
+  border-radius: var(--radius-sm, 4px);
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--space-md, 16px);
+  height: var(--space-md, 16px);
+  background: var(--accent-primary, #00d4ff);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 10px var(--dropshadow-color, rgba(0, 212, 255, 0.15));
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-thumb {
+  width: var(--space-md, 16px);
+  height: var(--space-md, 16px);
+  background: var(--accent-primary, #00d4ff);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 10px var(--dropshadow-color, rgba(0, 212, 255, 0.15));
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: var(--bg-primary, #0a0e14);
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* Play controls row */
+.play-controls {
+  display: flex;
+  gap: var(--space-sm, 8px);
+  margin-top: 12px;
+}
+
+.play-btn {
+  flex: 1;
+  padding: var(--space-sm, 8px);
+  background: var(--bg-primary, #0a0e14);
+  border: 1px solid var(--border-color, #2a3a4a);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-primary, #e6edf5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-btn:hover {
+  border-color: var(--accent-primary, #00d4ff);
+  color: var(--accent-primary, #00d4ff);
+}
+
+.play-btn.active {
+  background: var(--accent-primary, #00d4ff);
+  border-color: var(--accent-primary, #00d4ff);
+  color: var(--bg-primary, #0a0e14);
+}
+
+.play-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Speed control row */
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+  margin-top: 12px;
+}
+
+.speed-control label {
+  font-size: 11px;
+  color: var(--text-secondary, #8899aa);
+  text-transform: uppercase;
+}
+
+.speed-control input {
+  flex: 1;
+}
+
+.speed-value {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  color: var(--accent-secondary, #39d7ff);
+  min-width: 40px;
+  text-align: right;
+}
