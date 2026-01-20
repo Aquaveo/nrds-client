@@ -1,16 +1,19 @@
-// MapComponent.js
+// MapComponent.jcacheKeys
 import React, { useEffect, useCallback, useRef, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
+import { MapboxOverlay } from "@deck.gl/mapbox";
+import { PathLayer } from "@deck.gl/layers";
 import Map, { Source, Popup } from 'react-map-gl/maplibre';
 import { Protocol } from 'pmtiles';
 import { makeGpkgUrl } from '../../lib/s3Utils';
 import { getCacheKey } from '../../lib/opfsCache';
-import { loadVpuData, getVariables, getTimeseries } from 'features/DataStream/lib/queryData';
+import { loadVpuData, getVariables, getTimeseries, getFeatureIDs,  getDistinctFeatureIds, getDistinctTimes, getVpuVariableFlat  } from 'features/DataStream/lib/queryData';
 import useTimeSeriesStore from '../../store/Timeseries';
 import useDataStreamStore from '../../store/Datastream';
+import { useVPUStore } from '../../store/Layers';
 import { useLayersStore, useFeatureStore } from '../../store/Layers';
 import { PopupContent } from '../styles/Styles';
-import { reorderLayers } from '../../lib/layers';
+import { reorderLayers, computeBounds, convertFeaturesToPaths, valueToColor,  getValueAtTimeFlat } from '../../lib/layers';
 import { makeTitle, layerIdToFeatureType } from '../../lib/utils';
 import { getCentroid } from '../../lib/layers';
 import { toast } from 'react-toastify';
@@ -47,6 +50,7 @@ const MapComponent = () => {
 
   const selectedFeatureId = useTimeSeriesStore((state) => state.feature_id);
   const loading = useTimeSeriesStore((state) => state.loading);
+  const table = useTimeSeriesStore((state) => state.table);
   const setLoading = useTimeSeriesStore((state) => state.set_loading);
   const set_series = useTimeSeriesStore((state) => state.set_series);
   const set_feature_id = useTimeSeriesStore((state) => state.set_feature_id);
@@ -62,6 +66,7 @@ const MapComponent = () => {
   const forecast = useDataStreamStore((state) => state.forecast);
   const time = useDataStreamStore((state) => state.time);
   const cycle = useDataStreamStore((state) => state.cycle);
+  const vpu = useDataStreamStore((state) => state.vpu);
   const set_vpu = useDataStreamStore((state) => state.set_vpu);
   const set_variables = useDataStreamStore((state) => state.set_variables);
 
@@ -69,6 +74,22 @@ const MapComponent = () => {
   const hovered_feature = useFeatureStore((state) => state.hovered_feature);
   const set_selected_feature = useFeatureStore((state) => state.set_selected_feature);
   const selectedMapFeature = useFeatureStore((state) => state.selected_feature);
+
+  const set_feature_ids = useVPUStore((state) => state.set_feature_ids);
+  
+
+  const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
+  const variable = useTimeSeriesStore((s) => s.variable);
+
+  const featureIdToIndex = useVPUStore((s) => s.featureIdToIndex);
+  const timesArr = useVPUStore((s) => s.times);
+  const valuesByVar = useVPUStore((s) => s.valuesByVar);
+  const pathData = useVPUStore((s) => s.pathData);
+  const setAnimationIndex = useVPUStore((s) => s.setAnimationIndex);
+  const setVarData = useVPUStore((s) => s.setVarData);
+  const setPathData = useVPUStore((s) => s.setPathData);
+  const deckOverlayRef = useRef(null);
+
 
   const mapRef = useRef(null);
 
@@ -102,6 +123,23 @@ const MapComponent = () => {
   const nexusHighlightCircleColor =
     rootStyles.getPropertyValue('--map-nexus-highlight-circle-color').trim() ||
     nexusCircleColor;
+const handleMapLoad = useCallback((event) => {
+  const map = event.target;
+
+  // keep your existing onMapLoad behavior
+  const hoverLayers = ["divides", "nexus-points"];
+  hoverLayers.forEach((layer) => {
+    map.on("mouseenter", layer, () => (map.getCanvas().style.cursor = "pointer"));
+    map.on("mouseleave", layer, () => (map.getCanvas().style.cursor = ""));
+  });
+  reorderLayers(map);
+
+  // ✅ init deck overlay once, when map is guaranteed to exist
+  if (!deckOverlayRef.current) {
+    deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
+    map.addControl(deckOverlayRef.current);
+  }
+}, []); // deckOverlayRef is a ref; no dep needed
 
   const onHover = useCallback(
     (event) => {
@@ -183,6 +221,123 @@ const MapComponent = () => {
 
     reorderLayers(map);
   }, [isNexusVisible, isCatchmentsVisible, isFlowPathsVisible, isConusGaugesVisible]);
+ useEffect(() => {
+  return () => {
+    if (deckOverlayRef.current) {
+      deckOverlayRef.current.finalize?.(); // safe if available
+      deckOverlayRef.current = null;
+    }
+  };
+}, []);
+ 
+  useEffect(() => {
+    const map =
+      mapRef.current && mapRef.current.getMap ? mapRef.current.getMap() : mapRef.current;
+
+    if (!map) return;
+
+    if (!deckOverlayRef.current) {
+      deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
+      map.addControl(deckOverlayRef.current);
+    }
+
+    return () => {
+      if (deckOverlayRef.current) {
+        map.removeControl(deckOverlayRef.current);
+        deckOverlayRef.current = null;
+      }
+    };
+  }, []);
+
+useEffect(() => {
+  const map =
+    mapRef.current && mapRef.current.getMap ? mapRef.current.getMap() : mapRef.current;
+  if (!map) return;
+
+  const hasIndex = featureIdToIndex && Object.keys(featureIdToIndex).length > 0;
+  if (!hasIndex) return;
+
+  let raf = null;
+
+  const run = () => {
+    // cancel any queued run and schedule at next animation frame
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const feats = map.queryRenderedFeatures({ layers: ["flowpaths"] });
+      const matched = feats.filter(
+        (f) => featureIdToIndex[f.properties?.id] !== undefined
+      );
+      setPathData(convertFeaturesToPaths(matched, featureIdToIndex));
+      raf = null;
+    });
+  };
+
+  // initial fill once map is ready
+  map.once("idle", run);
+
+  // update when the view changes (zoom/pan)
+  map.on("moveend", run);
+  map.on("zoomend", run);
+
+  // also update when new tiles load after moving/zooming
+  map.on("idle", run);
+
+  return () => {
+    if (raf) cancelAnimationFrame(raf);
+    map.off("moveend", run);
+    map.off("zoomend", run);
+    map.off("idle", run);
+  };
+}, [featureIdToIndex, setPathData]);
+
+
+
+  useEffect(() => {
+    if (!deckOverlayRef.current) return;
+    if (!isFlowPathsVisible) {
+      deckOverlayRef.current.setProps({ layers: [] });
+      return;
+    }
+
+    const varData = valuesByVar?.[variable];
+    const numTimes = timesArr?.length || 0;
+
+    if (!varData || !numTimes || !pathData.length) {
+      deckOverlayRef.current.setProps({ layers: [] });
+      return;
+    }
+
+    const bounds = computeBounds(varData);
+
+    const layer = new PathLayer({
+      id: "flowpaths-anim",
+      data: pathData,
+      getPath: (d) => d.path,
+      getColor: (d) => {
+        const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
+        return valueToColor(v, bounds);
+      },
+      getWidth: (d) => {
+        const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
+        if (v === null || v <= -9998) return 2;
+        const t = Math.max(0, Math.min(1, (v - bounds.min) / (bounds.max - bounds.min)));
+        return 3 + t * 8;
+      },
+      widthUnits: "pixels",
+      widthMinPixels: 2,
+      widthMaxPixels: 12,
+      capRounded: true,
+      jointRounded: true,
+      pickable: true,
+      updateTriggers: {
+        getColor: [currentTimeIndex, variable],
+        getWidth: [currentTimeIndex, variable],
+      },
+    });
+
+    deckOverlayRef.current.setProps({ layers: [layer] });
+  }, [isFlowPathsVisible, valuesByVar, variable, timesArr, pathData, currentTimeIndex]);
+
 
   useEffect(() => {
     console.log('Selected feature changed:', selectedMapFeature);
@@ -212,6 +367,7 @@ const MapComponent = () => {
   }, [isNexusVisible, isCatchmentsVisible]);
 
   const handleMapClick = async (event) => {
+
     if (loading) {
       toast.info('Data is already loading, please wait...', { autoClose: 300 });
       return;
@@ -250,6 +406,8 @@ const MapComponent = () => {
       });
       try {
         await loadVpuData(model, date, forecast, cycle, time, vpu_str, vpu_gpkg);
+        const featureIDs = await getFeatureIDs(cacheKey);
+        set_feature_ids(featureIDs);
       } catch (err) {
         toast.update(toastId, {
           render: `No data for id: ${id}`,
@@ -268,7 +426,7 @@ const MapComponent = () => {
         const xy = series.map((d) => ({
           x: new Date(d.time),
           y: d.flow,
-        }));
+         }));
         const textToat = `Loaded ${xy.length} points for id: ${id}`;
 
         set_feature_id(unbiased_id);
@@ -282,6 +440,15 @@ const MapComponent = () => {
           xaxis: '',
           title: makeTitle(forecast, unbiased_id),
         });
+        const [featureIds, times, flat] = await Promise.all([
+          getDistinctFeatureIds(cacheKey),
+          getDistinctTimes(cacheKey),
+          getVpuVariableFlat(cacheKey, variables[0]),
+        ]);
+
+        setAnimationIndex(featureIds, times);
+        setVarData(variables[0], flat);
+
         toast.update(toastId, {
           render: `${textToat}`,
           type: 'success',
@@ -313,7 +480,8 @@ const MapComponent = () => {
       mapLib={maplibregl}
       mapStyle={mapStyleUrl}
       onClick={handleMapClick}
-      onLoad={onMapLoad}
+      onLoad={handleMapLoad}
+      // onLoad={onMapLoad}
       onMouseMove={onHover}
       interactiveLayerIds={['divides', 'nexus-points', 'flowpaths', 'conus-gauges']}
     >

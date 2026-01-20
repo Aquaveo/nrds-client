@@ -399,3 +399,327 @@ export const VariableIcon = (props) => (
     />
   </svg>
 );
+
+// function convertFeaturesToPaths(features) {
+//     return features.map((feature) => {
+//         const id = feature.properties.id;
+//         const featureIndex = state.featureIdToIndex[id];
+//         const coords = feature.geometry.coordinates;
+
+//         let path = [];
+//         if (feature.geometry.type === "MultiLineString") {
+//             coords.forEach((line) => path.push(...line));
+//         } else {
+//             path = coords;
+//         }
+
+//         return {
+//             id: id,
+//             featureIndex: featureIndex,
+//             path: path,
+//             properties: feature.properties,
+//         };
+//     });
+// }
+
+// function queryFlowpathGeometries() {
+//     const flowpathIds = state.featureIds.map((id) => `wb-${id}`);
+//     const features = map.queryRenderedFeatures({
+//         layers: ["flowpaths"],
+//     });
+
+//     console.log(
+//         `Queried ${features.length} flowpath features from map`,
+//     );
+
+//     const matchedFeatures = features.filter((f) => {
+//         const id = f.properties?.id;
+//         return id && state.featureIdToIndex.hasOwnProperty(id);
+//     });
+
+//     console.log(
+//         `Matched ${matchedFeatures.length} features with NetCDF data`,
+//     );
+
+//     document.getElementById("matchedCount").textContent =
+//         matchedFeatures.length;
+
+//     state.flowpathFeatures = matchedFeatures;
+//     state.pathData = convertFeaturesToPaths(matchedFeatures);
+
+//     calculateColorBoundsForRendered(matchedFeatures);
+//     updateLegend();
+//     updateVisualization();
+// }
+
+
+async function loadNetCDFFromS3(url) {
+    const btn = document.getElementById("loadBtn");
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
+
+    btn.disabled = true;
+    statusDot.className = "status-dot loading";
+    statusText.textContent = "Fetching NetCDF file...";
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok)
+            throw new Error(`HTTP error: ${response.status}`);
+
+        statusText.textContent = "Downloading...";
+        const arrayBuffer = await response.arrayBuffer();
+
+        statusText.textContent = "Parsing NetCDF...";
+        const file = new hdf5.File(arrayBuffer);
+
+        console.log("HDF5 File loaded:", file.keys);
+
+        state.data = {
+            time: file.get("time")?.value || [],
+            feature_id: file.get("feature_id")?.value || [],
+            flow: file.get("flow")?.value || [],
+            velocity: file.get("velocity")?.value || [],
+            depth: file.get("depth")?.value || [],
+            attributes: file.attrs || {},
+        };
+
+        state.featureIds = Array.from(state.data.feature_id);
+        state.featureIdToIndex = {};
+        state.featureIds.forEach((id, idx) => {
+            state.featureIdToIndex[id] = idx;
+            state.featureIdToIndex[`wb-${id}`] = idx;
+        });
+
+        console.log("Feature IDs:", state.featureIds);
+
+        updateDataInfo();
+        showDataPanels();
+        updateLegend();
+
+        state.dataLoaded = true;
+        queryFlowpathGeometries();
+
+        statusDot.className = "status-dot success";
+        statusText.textContent = `Loaded ${state.featureIds.length} features`;
+    } catch (error) {
+        statusDot.className = "status-dot error";
+        statusText.textContent = `Error: ${error.message}`;
+        console.error("Load error:", error);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+
+
+  // function updateVisualization() {
+  //     if (!series || !pathData.length) {
+  //         deckgl.setProps({ layers: [] });
+  //         return;
+  //     }
+
+  //     const varData = series;
+  //     const timeIdx = currentTimeIndex;
+
+  //     const pathsWithValues = pathData.map((p) => {
+  //         const value = getValueAtTime(
+  //             varData,
+  //             p.featureIndex,
+  //             timeIdx,
+  //         );
+  //         return {
+  //             ...p,
+  //             value: value,
+  //         };
+  //     });
+
+  //     const layers = [
+  //         new PathLayer({
+  //             id: "flowpaths",
+  //             data: pathsWithValues,
+  //             getPath: (d) => d.path,
+  //             getColor: (d) =>
+  //                 valueToColor(d.value, variable),
+  //             getWidth: (d) => {
+  //                 const v = d.value || 0;
+  //                 const bounds =
+  //                     colorBounds[variable];
+  //                 const t = Math.max(
+  //                     0,
+  //                     (v - bounds.min) / (bounds.max - bounds.min),
+  //                 );
+  //                 return 3 + t * 8;
+  //             },
+  //             widthUnits: "pixels",
+  //             widthMinPixels: 2,
+  //             widthMaxPixels: 12,
+  //             capRounded: true,
+  //             jointRounded: true,
+  //             pickable: true,
+  //             updateTriggers: {
+  //                 getColor: [
+  //                     currentTimeIndex,
+  //                     selectedVariable,
+  //                 ],
+  //                 getWidth: [
+  //                     currentTimeIndex,
+  //                     selectedVariable,
+  //                 ],
+  //             },
+  //         }),
+  //     ];
+
+  //     deckgl.setProps({ layers });
+  // }
+
+  // function valueToColor(value, varName) {
+  //     const colorScale = [
+  //         [0, 119, 182],
+  //         [0, 180, 216],
+  //         [144, 224, 239],
+  //         [255, 186, 8],
+  //         [255, 107, 53],
+  //         [208, 0, 0],
+  //     ];
+  //     const bounds = colorBounds[varName];
+  //     if (value === null || value === undefined || value <= -9998)
+  //         return [100, 100, 100, 150];
+
+  //     const t = Math.max(
+  //         0,
+  //         Math.min(
+  //             1,
+  //             (value - bounds.min) / (bounds.max - bounds.min),
+  //         ),
+  //     );
+  //     const idx = t * (colorScale.length - 1);
+  //     const lower = Math.floor(idx);
+  //     const upper = Math.ceil(idx);
+  //     const frac = idx - lower;
+
+  //     if (lower === upper) return colorScale[lower];
+
+  //     return colorScale[lower].map((c, i) =>
+  //         Math.round(c + (colorScale[upper][i] - c) * frac),
+  //     );
+  // }
+
+  // function getValueAtTime(varData, featureIndex, timeIndex) {
+  //     if (!varData || !varData.length || featureIndex === undefined)
+  //         return null;
+  //     if (
+  //         varData.length ==
+  //         feature_ids.length * series.length
+  //     ) {
+  //         return varData[
+  //             featureIndex * series.length + timeIndex
+  //         ];
+  //     }
+  //     if (Array.isArray(series)) {
+  //         return series[timeIndex];
+  //     }
+  //     return series;
+  // }
+
+  //   function calculateColorBoundsForRendered(matchedFeatures) {
+  //     if (!series || matchedFeatures.length === 0) return;
+
+  //     const numTimeSteps = series?.length || 1;
+
+  //         if (!series || !series.length)
+  //             return;
+
+  //         let min = Infinity;
+  //         let max = -Infinity;
+
+  //         matchedFeatures.forEach((feature) => {
+  //             const id = feature.properties?.id;
+  //             const featureIndex = featureIdToIndex[id];
+
+  //             if (featureIndex === undefined) return;
+  //             const offset = featureIndex * series.length;
+  //             min = Math.min(
+  //                 min,
+  //                 ...series.slice(
+  //                     offset,
+  //                     offset + numTimeSteps,
+  //                 ),
+  //             );
+  //             max = Math.max(
+  //                 max,
+  //                 ...series.slice(
+  //                     offset,
+  //                     offset + numTimeSteps,
+  //                 ),
+  //             );
+  //         });
+
+  //         colorBounds[variable] = {
+  //             min: min,
+  //             max: max,
+  //         };
+  // }
+
+export function getValueAtTimeFlat(varData, numTimes, featureIndex, timeIndex) {
+  if (!varData || featureIndex === undefined || featureIndex === null) return null;
+  const idx = featureIndex * numTimes + timeIndex;
+  if (idx < 0 || idx >= varData.length) return null;
+  return varData[idx];
+}
+
+export function valueToColor(value, bounds) {
+  const colorScale = [
+    [0, 119, 182],
+    [0, 180, 216],
+    [144, 224, 239],
+    [255, 186, 8],
+    [255, 107, 53],
+    [208, 0, 0],
+  ];
+  if (value === null || value === undefined || value <= -9998) return [100, 100, 100, 150];
+  if (!bounds || bounds.max === bounds.min) return colorScale[0];
+
+  const t = Math.max(0, Math.min(1, (value - bounds.min) / (bounds.max - bounds.min)));
+  const idx = t * (colorScale.length - 1);
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  const frac = idx - lower;
+  if (lower === upper) return colorScale[lower];
+  return colorScale[lower].map((c, i) => Math.round(c + (colorScale[upper][i] - c) * frac));
+}
+
+export function computeBounds(varData) {
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < varData.length; i++) {
+    const v = varData[i];
+    if (v <= -9998) continue;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  if (!isFinite(min) || !isFinite(max)) return { min: 0, max: 1 };
+  return { min, max };
+}
+
+export function convertFeaturesToPaths(features, featureIdToIndex) {
+  return features
+    .map((f) => {
+      const id = f.properties?.id;
+      const featureIndex = featureIdToIndex[id];
+      if (!id || featureIndex === undefined) return null;
+
+      // deck PathLayer supports LineString coords or MultiLineString coords
+      const geom = f.geometry;
+      if (!geom) return null;
+
+      const path =
+        geom.type === "LineString" ? geom.coordinates :
+        geom.type === "MultiLineString" ? geom.coordinates :
+        null;
+
+      if (!path) return null;
+
+      return { id, featureIndex, path, properties: f.properties };
+    })
+    .filter(Boolean);
+}

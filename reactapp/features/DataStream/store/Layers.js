@@ -1,3 +1,4 @@
+import { color } from 'deck.gl';
 import { create } from 'zustand';
 
 export const useLayersStore = create((set) => ({
@@ -12,6 +13,11 @@ export const useLayersStore = create((set) => ({
     },
     conus_gauges: {
         visible: false
+    },
+    colorBounds: {
+        flow: { min: 0, max: 100 },
+        velocity: { min: 0, max: 5 },
+        depth: { min: 0, max: 3 },
     },
     hovered_enabled: false,
     set_hovered_enabled: (isEnabled) => set({ hovered_enabled: isEnabled }),
@@ -56,4 +62,27 @@ export const useFeatureStore = create((set) => ({
         set(() => ({
             hovered_feature: feature,
         })),
+}));
+
+export const useVPUStore = create((set) => ({
+  featureIds: [],
+  featureIdToIndex: {},   // "wb-123" -> idx
+  times: [],
+  valuesByVar: {},        // { flow: Float32Array, velocity: Float32Array, ... }
+  pathData: [],           // [{ id, featureIndex, path, properties }]
+
+  setAnimationIndex: (featureIds, times) => {
+    const featureIdToIndex = {};
+    featureIds.forEach((id, idx) => {
+      featureIdToIndex[id] = idx;
+      featureIdToIndex[`wb-${id}`] = idx; // match your pmtiles id format
+    });
+    set({ featureIds, times, featureIdToIndex });
+  },
+
+  setVarData: (variable, flatValues) =>
+    set((s) => ({ valuesByVar: { ...s.valuesByVar, [variable]: flatValues } })),
+
+  setPathData: (pathData) => set({ pathData }),
+  set_feature_ids: (featureIds) => set({ featureIds }),
 }));

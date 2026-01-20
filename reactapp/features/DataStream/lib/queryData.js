@@ -29,6 +29,28 @@ export async function getTimeseries(id, cacheKey, variable) {
   }
 }
 
+export async function getFeatureIDs(cacheKey) {
+  console.log("getFeatureIDs called with cacheKey:", cacheKey);
+
+  const conn = await getConnection();
+
+  try {
+    const q = await conn.query(`
+      SELECT feature_id
+      FROM "${cacheKey}"
+    `);
+
+    const rows = q.toArray().map(Object.fromEntries);
+    rows.columns = q.schema.fields.map((d) => d.name);
+
+    console.log(
+      `[updateDataInfo] (literal) rows=${rows.length}`
+    );
+    return rows;
+  } finally {
+    await conn.close();
+  }
+}
 
 export async function loadIndexData({ remoteUrl }) {
   const cacheKey = "index_data_table";
@@ -217,6 +239,58 @@ export async function getVariables({ cacheKey }) {
     const rows = q.toArray();
     const cols = rows.map((r) => r.column_name);
     return cols;
+  } finally {
+    await conn.close();
+  }
+}
+
+
+function rowsToObjects(q) {
+  // matches your pattern: q.toArray().map(Object.fromEntries)
+  return q.toArray().map(Object.fromEntries);
+}
+
+export async function getDistinctFeatureIds(cacheKey) {
+  const conn = await getConnection();
+  try {
+    const q = await conn.query(`
+      SELECT DISTINCT feature_id
+      FROM "${cacheKey}"
+      ORDER BY feature_id
+    `);
+    const rows = rowsToObjects(q);
+    return rows.map((r) => r.feature_id);
+  } finally {
+    await conn.close();
+  }
+}
+
+export async function getDistinctTimes(cacheKey) {
+  const conn = await getConnection();
+  try {
+    const q = await conn.query(`
+      SELECT DISTINCT time
+      FROM "${cacheKey}"
+      ORDER BY time
+    `);
+    const rows = rowsToObjects(q);
+    return rows.map((r) => r.time);
+  } finally {
+    await conn.close();
+  }
+}
+
+// Returns a flattened array ordered by (feature_id, time)
+export async function getVpuVariableFlat(cacheKey, variable) {
+  const conn = await getConnection();
+  try {
+    const q = await conn.query(`
+      SELECT ${variable} AS v
+      FROM "${cacheKey}"
+      ORDER BY feature_id, time
+    `);
+    const rows = rowsToObjects(q);
+    return Float32Array.from(rows.map((r) => Number(r.v)));
   } finally {
     await conn.close();
   }

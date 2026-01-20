@@ -108,7 +108,7 @@ export default function DataMenu() {
       const xy = series.map((d) => ({
         x: new Date(d.time),
         y: d[variables[0]],
-      }));
+       }));
       const textToast = `Loaded ${xy.length} data points for id: ${feature_id}`;
       set_table(cacheKey);
       set_variables(variables);

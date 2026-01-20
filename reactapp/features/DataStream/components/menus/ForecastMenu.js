@@ -5,7 +5,7 @@ import TimeSeriesCard from '../forecast/TimeseriesCard';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import { ForecastHeader } from '../forecast/ForecastHeader';
 import { FeatureInformation } from '../forecast/FeatureInformation';
-
+import { TimeSlider } from '../forecast/TimeSlider';
 const ForecastMenu = () => {
 
   // const feature_id = useTimeSeriesStore((state) => state.feature_id);
@@ -37,6 +37,9 @@ const ForecastMenu = () => {
             <Content>
               <TimeSeriesCard />
               <DataMenu />
+            </Content>
+            <Content>
+                <TimeSlider />
             </Content>
             <Content>
               <FeatureInformation />

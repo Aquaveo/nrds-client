@@ -1,13 +1,13 @@
 // TimeSlider.jsx
 import React, { useEffect, useMemo, useRef, useCallback } from "react";
 import useTimeSeriesStore from "features/DataStream/store/Timeseries";
+import { getFeatureIDs } from "features/DataStream/lib/queryData";
 import "./TimeSlider.css";
 
 export const TimeSlider = () => {
   const series = useTimeSeriesStore((s) => s.series);
   const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
   const setCurrentTimeIndex = useTimeSeriesStore((s) => s.setCurrentTimeIndex);
-
   const stepForward = useTimeSeriesStore((s) => s.stepForward);
   const stepBackward = useTimeSeriesStore((s) => s.stepBackward);
 
@@ -48,7 +48,7 @@ export const TimeSlider = () => {
 
     if (!isPlaying) return;
     if (!timeSteps) return;
-
+    // get ids
     const ms = Math.max(1, Math.floor(baseFrameMs / Math.max(1, playSpeed)));
 
     intervalRef.current = setInterval(() => {
