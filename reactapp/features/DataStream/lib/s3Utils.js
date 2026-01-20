@@ -58,6 +58,13 @@ export async function listPublicS3Files(prefix = "v2.2/") {
     return contents.map(node => node.getElementsByTagName("Key")[0].textContent);
 }
 
+export async function getOptionsFromURL(url) {
+    const { childNames } = await listPublicS3Directories(url);
+    const options = childNames.map((d) => ({ value: d, label: d }));
+    const sortedOptions = Array.from(options).sort().reverse();
+    return sortedOptions;
+}
+
 export const makePrefix = (model, avail_date,ngen_forecast,ngen_cycle, ngen_time, ngen_vpu) => {    
     let prefix_path = `outputs/${model}/v2.2_hydrofabric/${avail_date}/${ngen_forecast}/${ngen_cycle}`
     let time_path = ngen_time ? `${ngen_time}/` : '';

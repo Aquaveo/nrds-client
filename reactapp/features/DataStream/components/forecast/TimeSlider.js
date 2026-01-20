@@ -1,7 +1,6 @@
 // TimeSlider.jsx
 import React, { useEffect, useMemo, useRef, useCallback } from "react";
 import useTimeSeriesStore from "features/DataStream/store/Timeseries";
-import { getFeatureIDs } from "features/DataStream/lib/queryData";
 import "./TimeSlider.css";
 
 export const TimeSlider = () => {
