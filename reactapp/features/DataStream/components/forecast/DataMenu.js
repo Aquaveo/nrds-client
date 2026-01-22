@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, Fragment } fr
 import { Spinner } from 'react-bootstrap';
 import { XButton, LoadingMessage, Row, IconLabel } from '../styles/Styles';
 import SelectComponent from '../SelectComponent';
-import Breadcrumb from './Breadcrumb'; // ✅ add this (path as needed)
+import Breadcrumb from './Breadcrumb';
 import { toast } from 'react-toastify';
 
 import { loadVpuData, getVariables, getTimeseries, checkForTable } from 'features/DataStream/lib/queryData';
@@ -12,28 +12,46 @@ import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import { makeTitle } from 'features/DataStream/lib/utils';
 
+import { ModelIcon, DateIcon, ForecastIcon, CycleIcon, EnsembleIcon, VariableIcon } from 'features/DataStream/lib/layers';
+
 import {
-  ModelIcon,
-  DateIcon,
-  ForecastIcon,
-  CycleIcon,
-  EnsembleIcon,
-  VariableIcon,
-} from 'features/DataStream/lib/layers';
+  firstOpt,
+  pickDefault,
+  findSelected,
+  getStepOrder,
+  deriveActiveKey,
+  getPathForStep,
+} from 'features/DataStream/lib/DataMenu.nav';
 
-const firstOpt = (v) => (Array.isArray(v) ? v[0] : v);
-
-const pickDefault = (opts, { index = 0, preferValue } = {}) => {
-  if (!Array.isArray(opts) || opts.length === 0) return null;
-  if (preferValue) {
-    const found = opts.find((o) => o.value === preferValue);
-    if (found) return found;
-  }
-  const safe = Math.min(Math.max(index, 0), opts.length - 1);
-  return opts[safe] ?? opts[0] ?? null;
+const ICONS = {
+  model: <ModelIcon />,
+  date: <DateIcon />,
+  forecast: <ForecastIcon />,
+  cycle: <CycleIcon />,
+  ensemble: <EnsembleIcon />,
+  vpu: <EnsembleIcon />,
+  outputFile: <VariableIcon />,
 };
 
-const findSelected = (opts, value) => opts.find((o) => o.value === value) ?? null;
+const LABELS = {
+  model: 'Model',
+  date: 'Date',
+  forecast: 'Forecast',
+  cycle: 'Cycle',
+  ensemble: 'Ensemble',
+  vpu: 'VPU',
+  outputFile: 'Output File',
+};
+
+const EMPTY_OPTS = {
+  model: [],
+  date: [],
+  forecast: [],
+  cycle: [],
+  ensemble: [],
+  vpu: [],
+  outputFile: [],
+};
 
 export default function DataMenu() {
   // ─────────────────────────────────────
@@ -68,44 +86,25 @@ export default function DataMenu() {
   // Local UI state
   // ─────────────────────────────────────
   const [loadingText, setLoadingText] = useState('');
-
-  const [modelsList, setModelsList] = useState([]);
-  const [datesList, setDatesList] = useState([]);
-  const [forecastList, setForecastList] = useState([]);
-  const [cyclesList, setCyclesList] = useState([]);
-  const [ensembleList, setEnsembleList] = useState([]);
-  const [vpuList, setVpuList] = useState([]);
-  const [outputFilesList, setOutputFilesList] = useState([]);
-
-  const [outputFile, setOutputFile] = useState('');
-
+  const [outputFile, setOutputFile] = useState(''); // store VALUE (not label)
+  const [opts, setOpts] = useState(EMPTY_OPTS);
 
   const didBootstrapRef = useRef(false);
-  const isMedium = forecast === 'medium_range';
+
+  const selectionState = useMemo(
+    () => ({ model, date, forecast, cycle, ensemble, vpu, outputFile }),
+    [model, date, forecast, cycle, ensemble, vpu, outputFile]
+  );
+
+  const stepOrder = useMemo(() => getStepOrder(forecast), [forecast]);
+
+  const [activeStepKey, setActiveStepKey] = useState(() =>
+    deriveActiveKey({ model, date, forecast, cycle, ensemble, vpu })
+  );
 
   // ─────────────────────────────────────
   // Helpers
   // ─────────────────────────────────────
-  // put near your helpers
-const deriveActiveKey = ({ model, date, forecast, cycle, ensemble, vpu }) => {
-  if (!model) return 'model';
-  if (!date) return 'date';
-  if (!forecast) return 'forecast';
-  if (!cycle) return 'cycle';
-
-  if (forecast === 'medium_range') {
-    if (!ensemble) return 'ensemble';
-    if (!vpu) return 'vpu';
-    return 'outputFile';
-  }
-
-  if (!vpu) return 'vpu';
-  return 'outputFile';
-};
-  // one dropdown at a time
-const [activeStepKey, setActiveStepKey] = useState(() =>
-  deriveActiveKey({ model, date, forecast, cycle, ensemble, vpu })
-);
   const handleLoading = (text) => {
     setLoading(true);
     setLoadingText(text);
@@ -121,87 +120,76 @@ const [activeStepKey, setActiveStepKey] = useState(() =>
   };
 
   const fetchOpts = useCallback(async (path) => {
-    const opts = await getOptionsFromURL(path);
-    return Array.isArray(opts) ? opts : [];
+    const res = await getOptionsFromURL(path);
+    return Array.isArray(res) ? res : [];
   }, []);
 
-  const stepOrder = useMemo(() => {
-    const base = ['model', 'date', 'forecast', 'cycle'];
-    if (isMedium) base.push('ensemble');
-    base.push('vpu', 'outputFile');
-    return base;
-  }, [isMedium]);
+  const setOpt = useCallback((key, list) => {
+    setOpts((prev) => ({ ...prev, [key]: Array.isArray(list) ? list : [] }));
+  }, []);
+
+  const clearOptionLists = useCallback((keys) => {
+    setOpts((prev) => {
+      const next = { ...prev };
+      for (const k of keys) {
+        if (k === 'model') continue; // never clear model list
+        next[k] = [];
+      }
+      return next;
+    });
+  }, []);
 
   const nextAfter = useCallback(
-    (key) => {
-      const idx = stepOrder.indexOf(key);
-      return stepOrder[idx + 1] ?? key;
+    (order, key) => {
+      const idx = order.indexOf(key);
+      return order[idx + 1] ?? key;
     },
-    [stepOrder]
+    []
   );
 
   /**
-   * Reset values/lists from a step
+   * Reset values + options from a step
    * - includeSelf=false : clears only downstream
-   * - includeSelf=true  : clears the clicked step + downstream
+   * - includeSelf=true  : clears clicked step + downstream
    */
   const resetFromKey = useCallback(
-    (fromKey, { includeSelf = false, preserveLists = new Set() } = {}) => {
+    (fromKey, { includeSelf = false } = {}) => {
       const idx = stepOrder.indexOf(fromKey);
       if (idx < 0) return;
 
       const start = includeSelf ? idx : idx + 1;
-      const toClear = new Set(stepOrder.slice(start));
+      const toClear = stepOrder.slice(start);
 
       // Store values
-      if (toClear.has('model')) set_model('');
-      if (toClear.has('date')) set_date('');
-      if (toClear.has('forecast')) set_forecast('');
-      if (toClear.has('cycle')) set_cycle('');
-      if (toClear.has('ensemble')) set_ensemble(null);
-      if (toClear.has('vpu')) set_vpu('');
-      if (toClear.has('outputFile')) setOutputFile('');
+      if (toClear.includes('model')) set_model('');
+      if (toClear.includes('date')) set_date('');
+      if (toClear.includes('forecast')) set_forecast('');
+      if (toClear.includes('cycle')) set_cycle('');
+      if (toClear.includes('ensemble')) set_ensemble(null);
+      if (toClear.includes('vpu')) set_vpu('');
+      if (toClear.includes('outputFile')) setOutputFile('');
 
-      // Local option lists (never clear modelsList)
-      if (toClear.has('date') && !preserveLists.has('date')) setDatesList([]);
-      if (toClear.has('forecast')) setForecastList([]);
-      if (toClear.has('cycle')) setCyclesList([]);
-      if (toClear.has('ensemble')) setEnsembleList([]);
-      if (toClear.has('vpu')) setVpuList([]);
-      if (toClear.has('outputFile')) setOutputFilesList([]);
+      // Options
+      clearOptionLists(toClear);
 
+      // Clear variable selection (optional)
       set_variable?.('');
     },
-    [
-      stepOrder,
-      set_model,
-      set_date,
-      set_forecast,
-      set_cycle,
-      set_ensemble,
-      set_vpu,
-      set_variable,
-    ]
+    [stepOrder, set_model, set_date, set_forecast, set_cycle, set_ensemble, set_vpu, clearOptionLists, set_variable]
   );
 
-  // prefix up to the folder that contains VPU folders
-  const vpuBasePath = useMemo(() => {
-    if (!model || !date || !forecast || !cycle) return '';
-    if (forecast === 'medium_range') {
-      if (!ensemble) return '';
-      return `outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${cycle}/${ensemble}/`;
-    }
-    return `outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${cycle}/`;
-  }, [model, date, forecast, cycle, ensemble]);
-
-  // used ONLY for querying output files; NOT shown in breadcrumb
-  const troutePath = useMemo(() => {
-    if (!vpuBasePath || !vpu) return '';
-    return `${vpuBasePath}${vpu}/ngen-run/outputs/troute/`;
-  }, [vpuBasePath, vpu]);
+  const prefetchOptions = useCallback(
+    async (stepKey, s) => {
+      const path = getPathForStep(stepKey, s);
+      if (!path) return;
+      const list = await fetchOpts(path);
+      setOpt(stepKey, list);
+    },
+    [fetchOpts, setOpt]
+  );
 
   // ─────────────────────────────────────
-  // Bootstrap defaults
+  // Bootstrap defaults (ends at outputFile)
   // ─────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -211,69 +199,83 @@ const [activeStepKey, setActiveStepKey] = useState(() =>
       didBootstrapRef.current = true;
 
       try {
+        // MODEL
         const mOpts = await fetchOpts('outputs/');
         if (cancelled) return;
-        setModelsList(mOpts);
-        const mDef = pickDefault(mOpts, { index: 0 })?.value || '';
-        if (!mDef) return;
+        setOpt('model', mOpts);
 
-        const dOpts = await fetchOpts(`outputs/${mDef}/v2.2_hydrofabric/`);
+        const mDef = model || pickDefault(mOpts, { index: 0 })?.value || '';
+        if (!mDef) return;
+        set_model(mDef);
+
+        // DATE
+        const dOpts = await fetchOpts(getPathForStep('date', { model: mDef }));
         if (cancelled) return;
-        setDatesList(dOpts);
+        setOpt('date', dOpts);
+
         const dDef =
+          date ||
           pickDefault(dOpts, { index: 1 })?.value ||
           pickDefault(dOpts, { index: 0 })?.value ||
           '';
         if (!dDef) return;
+        set_date(dDef);
 
-        const fOpts = await fetchOpts(`outputs/${mDef}/v2.2_hydrofabric/${dDef}/`);
+        // FORECAST
+        const fOpts = await fetchOpts(getPathForStep('forecast', { model: mDef, date: dDef }));
         if (cancelled) return;
-        setForecastList(fOpts);
-        const fDef = pickDefault(fOpts, { index: 0 })?.value || '';
+        setOpt('forecast', fOpts);
+
+        const fDef = forecast || pickDefault(fOpts, { index: 0 })?.value || '';
         if (!fDef) return;
+        set_forecast(fDef);
 
-        const cOpts = await fetchOpts(`outputs/${mDef}/v2.2_hydrofabric/${dDef}/${fDef}/`);
+        // CYCLE
+        const cOpts = await fetchOpts(getPathForStep('cycle', { model: mDef, date: dDef, forecast: fDef }));
         if (cancelled) return;
-        setCyclesList(cOpts);
-        const cDef = pickDefault(cOpts, { index: 0 })?.value || '';
-        if (!cDef) return;
+        setOpt('cycle', cOpts);
 
+        const cDef = cycle || pickDefault(cOpts, { index: 0 })?.value || '';
+        if (!cDef) return;
+        set_cycle(cDef);
+
+        // ENSEMBLE (optional)
         let eDef = null;
         if (fDef === 'medium_range') {
-          const eOpts = await fetchOpts(`outputs/${mDef}/v2.2_hydrofabric/${dDef}/${fDef}/${cDef}/`);
+          const eOpts = await fetchOpts(
+            getPathForStep('ensemble', { model: mDef, date: dDef, forecast: fDef, cycle: cDef })
+          );
           if (cancelled) return;
-          setEnsembleList(eOpts);
-          eDef = pickDefault(eOpts, { index: 0 })?.value || null;
+          setOpt('ensemble', eOpts);
+
+          eDef = ensemble || pickDefault(eOpts, { index: 0 })?.value || null;
           if (!eDef) return;
+          set_ensemble(eDef);
         } else {
-          setEnsembleList([]);
+          set_ensemble(null);
+          setOpt('ensemble', []);
         }
 
-        const vBase =
-          fDef === 'medium_range'
-            ? `outputs/${mDef}/v2.2_hydrofabric/${dDef}/${fDef}/${cDef}/${eDef}/`
-            : `outputs/${mDef}/v2.2_hydrofabric/${dDef}/${fDef}/${cDef}/`;
-
-        const vOpts = await fetchOpts(vBase);
+        // VPU
+        const vOpts = await fetchOpts(
+          getPathForStep('vpu', { model: mDef, date: dDef, forecast: fDef, cycle: cDef, ensemble: eDef })
+        );
         if (cancelled) return;
-        setVpuList(vOpts);
+        setOpt('vpu', vOpts);
 
-        const vDef = pickDefault(vOpts, { preferValue: vpu, index: 0 })?.value || '';
+        const vDef = vpu || pickDefault(vOpts, { index: 0 })?.value || '';
         if (!vDef) return;
-
-        const fileOpts = await fetchOpts(`${vBase}${vDef}/ngen-run/outputs/troute/`);
-        if (cancelled) return;
-        setOutputFilesList(fileOpts);
-
-        const fileDef = pickDefault(fileOpts, { index: 0 })?.label || '';
-
-        set_model(mDef);
-        set_date(dDef);
-        set_forecast(fDef);
-        set_cycle(cDef);
-        set_ensemble(eDef);
         set_vpu(vDef);
-        setOutputFile(fileDef);
+
+        // OUTPUT FILE
+        const oOpts = await fetchOpts(
+          getPathForStep('outputFile', { model: mDef, date: dDef, forecast: fDef, cycle: cDef, ensemble: eDef, vpu: vDef })
+        );
+        if (cancelled) return;
+        setOpt('outputFile', oOpts);
+
+        const oDef = pickDefault(oOpts, { index: 0 })?.value || '';
+        setOutputFile(oDef);
 
         setActiveStepKey('outputFile');
       } catch (e) {
@@ -284,74 +286,100 @@ const [activeStepKey, setActiveStepKey] = useState(() =>
     return () => {
       cancelled = true;
     };
-  }, [fetchOpts, set_model, set_date, set_forecast, set_cycle, set_ensemble, set_vpu, vpu]);
+  }, [
+    fetchOpts,
+    setOpt,
+    model,
+    date,
+    forecast,
+    cycle,
+    ensemble,
+    vpu,
+    set_model,
+    set_date,
+    set_forecast,
+    set_cycle,
+    set_ensemble,
+    set_vpu,
+  ]);
 
   // ─────────────────────────────────────
-  // Lazy-load options for step (FORCE-supported)
+  // Apply selection (generic) + prefetch next step (fixes “empty dropdown” moments)
   // ─────────────────────────────────────
-  const ensureOptionsForStep = useCallback(
-    async (stepKey, { force = false } = {}) => {
-      try {
-        if (stepKey === 'model' && (force || modelsList.length === 0)) {
-          setModelsList(await fetchOpts('outputs/'));
-        }
+  const applySelection = useCallback(
+    async (stepKey, value) => {
+      if (!value) return;
 
-        if (stepKey === 'date' && model && (force || datesList.length === 0)) {
-          setDatesList(await fetchOpts(`outputs/${model}/v2.2_hydrofabric/`));
-        }
-
-        if (stepKey === 'forecast' && model && date && (force || forecastList.length === 0)) {
-          setForecastList(await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${date}/`));
-        }
-
-        if (stepKey === 'cycle' && model && date && forecast && (force || cyclesList.length === 0)) {
-          setCyclesList(await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/`));
-        }
-
-        if (
-          stepKey === 'ensemble' &&
-          model &&
-          date &&
-          forecast === 'medium_range' &&
-          cycle &&
-          (force || ensembleList.length === 0)
-        ) {
-          setEnsembleList(await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${cycle}/`));
-        }
-
-        if (stepKey === 'vpu' && vpuBasePath && (force || vpuList.length === 0)) {
-          setVpuList(await fetchOpts(vpuBasePath));
-        }
-
-        if (stepKey === 'outputFile' && troutePath && (force || outputFilesList.length === 0)) {
-          setOutputFilesList(await fetchOpts(troutePath));
-        }
-      } catch (e) {
-        console.error(e);
+      // outputFile is local only
+      if (stepKey === 'outputFile') {
+        setOutputFile(value);
+        return;
       }
+
+      // Build the "next" state locally (don’t wait for store updates)
+      const sNext = { ...selectionState };
+
+      // Set store value
+      if (stepKey === 'model') {
+        set_model(value);
+        sNext.model = value;
+      } else if (stepKey === 'date') {
+        set_date(value);
+        sNext.date = value;
+      } else if (stepKey === 'forecast') {
+        set_forecast(value);
+        sNext.forecast = value;
+
+        // forecast change always invalidates ensemble
+        set_ensemble(null);
+        sNext.ensemble = null;
+        setOpt('ensemble', []);
+      } else if (stepKey === 'cycle') {
+        set_cycle(value);
+        sNext.cycle = value;
+      } else if (stepKey === 'ensemble') {
+        set_ensemble(value);
+        sNext.ensemble = value;
+      } else if (stepKey === 'vpu') {
+        set_vpu(value);
+        sNext.vpu = value;
+      }
+
+      // Reset downstream (exclusive)
+      resetFromKey(stepKey, { includeSelf: false });
+
+      // Compute next step order using UPDATED forecast
+      const orderNext = getStepOrder(stepKey === 'forecast' ? value : sNext.forecast);
+      const nextKey = nextAfter(orderNext, stepKey);
+
+      setActiveStepKey(nextKey);
+
+      // Prefetch next options immediately (prevents empty dropdown)
+      await prefetchOptions(nextKey, sNext);
     },
     [
-      fetchOpts,
-      model,
-      date,
-      forecast,
-      cycle,
-      vpuBasePath,
-      troutePath,
-      modelsList.length,
-      datesList.length,
-      forecastList.length,
-      cyclesList.length,
-      ensembleList.length,
-      vpuList.length,
-      outputFilesList.length,
+      selectionState,
+      set_model,
+      set_date,
+      set_forecast,
+      set_cycle,
+      set_ensemble,
+      set_vpu,
+      setOpt,
+      resetFromKey,
+      nextAfter,
+      prefetchOptions,
     ]
   );
 
   // ─────────────────────────────────────
-  // Breadcrumb segments (NO v2.2_hydrofabric segment)
-  // outputs is clickable and resets from model (inclusive)
+  // Breadcrumb segments (no v2.2_hydrofabric)
   // ─────────────────────────────────────
+  const outputFileLabel = useMemo(() => {
+    const sel = findSelected(opts.outputFile, outputFile);
+    return sel?.label || outputFile;
+  }, [opts.outputFile, outputFile]);
+
   const breadcrumbSegments = useMemo(() => {
     return [
       { id: 'root-outputs', label: 'outputs', kind: 'root_outputs' },
@@ -359,222 +387,90 @@ const [activeStepKey, setActiveStepKey] = useState(() =>
       date ? { id: 'date', label: date, kind: 'value', resetKey: 'date' } : null,
       forecast ? { id: 'forecast', label: forecast, kind: 'value', resetKey: 'forecast' } : null,
       cycle ? { id: 'cycle', label: cycle, kind: 'value', resetKey: 'cycle' } : null,
-      isMedium ? (ensemble ? { id: 'ensemble', label: ensemble, kind: 'value', resetKey: 'ensemble' } : null) : null,
+      forecast === 'medium_range' && ensemble
+        ? { id: 'ensemble', label: String(ensemble), kind: 'value', resetKey: 'ensemble' }
+        : null,
       vpu ? { id: 'vpu', label: vpu, kind: 'value', resetKey: 'vpu' } : null,
-      outputFile ? { id: 'outputFile', label: outputFile, kind: 'value', resetKey: 'outputFile' } : null,
+      outputFile ? { id: 'outputFile', label: outputFileLabel, kind: 'value', resetKey: 'outputFile' } : null,
     ].filter(Boolean);
-  }, [model, date, forecast, cycle, ensemble, isMedium, vpu, outputFile]);
+  }, [model, date, forecast, cycle, ensemble, vpu, outputFile, outputFileLabel]);
 
   const handleBreadcrumbClick = useCallback(
     async (seg) => {
       if (!seg) return;
 
-      // outputs → reset from model (inclusive) and show model dropdown
+      // outputs -> reset from model (inclusive) and show model
       if (seg.kind === 'root_outputs') {
         resetFromKey('model', { includeSelf: true });
         setActiveStepKey('model');
-        await ensureOptionsForStep('model', { force: true });
+        await prefetchOptions('model', { model: '', date: '', forecast: '', cycle: '', ensemble: null, vpu: '', outputFile: '' });
         return;
       }
 
-      // normal value segment: reset downstream (exclusive) and show NEXT dropdown
       if (seg.kind === 'value' && seg.resetKey) {
+        // Reset downstream (exclusive)
         resetFromKey(seg.resetKey, { includeSelf: false });
 
-        const next = nextAfter(seg.resetKey);
-        setActiveStepKey(next);
+        // Compute what state will look like after reset (for prefetch)
+        const orderNow = getStepOrder(forecast);
+        const idx = orderNow.indexOf(seg.resetKey);
+        const downstream = orderNow.slice(idx + 1);
 
-        // force fetch because we just cleared lists and length checks may be stale this tick
-        await ensureOptionsForStep(next, { force: true });
+        const sNext = { ...selectionState };
+        if (downstream.includes('date')) sNext.date = '';
+        if (downstream.includes('forecast')) sNext.forecast = '';
+        if (downstream.includes('cycle')) sNext.cycle = '';
+        if (downstream.includes('ensemble')) sNext.ensemble = null;
+        if (downstream.includes('vpu')) sNext.vpu = '';
+        if (downstream.includes('outputFile')) sNext.outputFile = '';
+
+        // Next dropdown to show
+        const orderNext = getStepOrder(sNext.forecast);
+        const nextKey = nextAfter(orderNext, seg.resetKey);
+
+        setActiveStepKey(nextKey);
+
+        // ✅ force prefetch so dropdown isn't empty
+        await prefetchOptions(nextKey, sNext);
       }
     },
-    [resetFromKey, nextAfter, ensureOptionsForStep]
+    [resetFromKey, prefetchOptions, selectionState, forecast, nextAfter]
   );
 
   // ─────────────────────────────────────
-  // Variables list (from store variables)
-  // ─────────────────────────────────────
-  const availableVariablesList = useMemo(
-    () => (variables || []).map((vv) => ({ value: vv, label: vv })),
-    [variables]
-  );
-// ✅ auto-advance when the path becomes “deeper” (e.g., after bootstrap sets values)
-useEffect(() => {
-  const derived = deriveActiveKey({ model, date, forecast, cycle, ensemble, vpu });
-
-  setActiveStepKey((prev) => {
-    const prevIdx = stepOrder.indexOf(prev);
-    const nextIdx = stepOrder.indexOf(derived);
-    return nextIdx > prevIdx ? derived : prev; // only advance
-  });
-
-  // if we’re at the vpu level, make sure output files are fetched
-  if (derived === 'outputFile') {
-    ensureOptionsForStep('outputFile', { force: true });
-  }
-}, [
-  model,
-  date,
-  forecast,
-  cycle,
-  ensemble,
-  vpu,
-  stepOrder,
-  ensureOptionsForStep,
-]);
-  // ─────────────────────────────────────
-  // Step definitions
+  // Steps UI (generated from stepOrder)
   // ─────────────────────────────────────
   const steps = useMemo(() => {
-    const modelStep = {
-      key: 'model',
-      label: 'Model',
-      icon: <ModelIcon />,
-      options: modelsList,
-      selected: findSelected(modelsList, model),
-      enabled: modelsList.length > 0,
-      onChange: async (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
+    const arr = stepOrder.map((key) => {
+      const options = opts[key] || [];
+      const value =
+        key === 'outputFile'
+          ? outputFile
+          : selectionState[key];
 
-        set_model(opt.value);
-        resetFromKey('model', { includeSelf: false });
-        setActiveStepKey('date');
+      const selected = findSelected(options, value);
 
-        const dOpts = await fetchOpts(`outputs/${opt.value}/v2.2_hydrofabric/`);
-        setDatesList(dOpts);
-      },
-    };
+      // enabled depends on having a valid path + options
+      const path = getPathForStep(key, selectionState);
+      const enabled = key === 'model' ? options.length > 0 : !!path && options.length > 0;
 
-    const dateStep = {
-      key: 'date',
-      label: 'Date',
-      icon: <DateIcon />,
-      options: datesList,
-      selected: findSelected(datesList, date),
-      enabled: !!model && datesList.length > 0,
-      onChange: async (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
+      return {
+        key,
+        label: LABELS[key],
+        icon: ICONS[key],
+        options,
+        selected,
+        enabled,
+        onChange: async (v) => {
+          const opt = firstOpt(v);
+          if (!opt) return;
+          await applySelection(key, opt.value);
+        },
+      };
+    });
 
-        set_date(opt.value);
-        resetFromKey('date', { includeSelf: false });
-        setActiveStepKey('forecast');
-
-        const fOpts = await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${opt.value}/`);
-        setForecastList(fOpts);
-      },
-    };
-
-    const forecastStep = {
-      key: 'forecast',
-      label: 'Forecast',
-      icon: <ForecastIcon />,
-      options: forecastList,
-      selected: findSelected(forecastList, forecast),
-      enabled: !!model && !!date && forecastList.length > 0,
-      onChange: async (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
-
-        set_forecast(opt.value);
-        resetFromKey('forecast', { includeSelf: false });
-        setActiveStepKey('cycle');
-
-        const cOpts = await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/`);
-        setCyclesList(cOpts);
-      },
-    };
-
-    const cycleStep = {
-      key: 'cycle',
-      label: 'Cycle',
-      icon: <CycleIcon />,
-      options: cyclesList,
-      selected: findSelected(cyclesList, cycle),
-      enabled: !!model && !!date && !!forecast && cyclesList.length > 0,
-      onChange: async (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
-
-        set_cycle(opt.value);
-        resetFromKey('cycle', { includeSelf: false });
-
-        if (forecast === 'medium_range') {
-          setActiveStepKey('ensemble');
-          const eOpts = await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/`);
-          setEnsembleList(eOpts);
-        } else {
-          set_ensemble(null);
-          setEnsembleList([]);
-          setActiveStepKey('vpu');
-
-          const vOpts = await fetchOpts(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/`);
-          setVpuList(vOpts);
-        }
-      },
-    };
-
-    const ensembleStep = {
-      key: 'ensemble',
-      label: 'Ensemble',
-      icon: <EnsembleIcon />,
-      options: ensembleList,
-      selected: findSelected(ensembleList, ensemble),
-      enabled: isMedium && !!model && !!date && !!forecast && !!cycle && ensembleList.length > 0,
-      onChange: async (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
-
-        set_ensemble(opt.value);
-        resetFromKey('ensemble', { includeSelf: false });
-
-        setActiveStepKey('vpu');
-        const vOpts = await fetchOpts(
-          `outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${cycle}/${opt.value}/`
-        );
-        setVpuList(vOpts);
-      },
-    };
-
-    const vpuStep = {
-      key: 'vpu',
-      label: 'VPU',
-      icon: <EnsembleIcon />,
-      options: vpuList,
-      selected: findSelected(vpuList, vpu),
-      enabled: !!vpuBasePath && vpuList.length > 0,
-      onChange: async (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
-
-        set_vpu(opt.value);
-        resetFromKey('vpu', { includeSelf: false });
-
-        setActiveStepKey('outputFile');
-        const files = await fetchOpts(`${vpuBasePath}${opt.value}/ngen-run/outputs/troute/`);
-        setOutputFilesList(files);
-      },
-    };
-
-    const outputFileStep = {
-      key: 'outputFile',
-      label: 'Output File',
-      icon: <VariableIcon />,
-      options: outputFilesList,
-      selected: findSelected(outputFilesList, outputFile),
-      enabled: !!troutePath && outputFilesList.length > 0,
-      onChange: (v) => {
-        const opt = firstOpt(v);
-        if (!opt) return;
-        setOutputFile(opt.label);
-      },
-    };
-
-    const arr = [modelStep, dateStep, forecastStep, cycleStep];
-    if (isMedium) arr.push(ensembleStep);
-    arr.push(vpuStep, outputFileStep);
-
+    // Variable dropdown (optional, not part of navigation)
+    const availableVariablesList = (variables || []).map((vv) => ({ value: vv, label: vv }));
     if (availableVariablesList.length > 0) {
       arr.push({
         key: 'variable',
@@ -592,41 +488,10 @@ useEffect(() => {
     }
 
     return arr;
-  }, [
-    modelsList,
-    datesList,
-    forecastList,
-    cyclesList,
-    ensembleList,
-    vpuList,
-    outputFilesList,
-    model,
-    date,
-    forecast,
-    cycle,
-    ensemble,
-    vpu,
-    outputFile,
-    isMedium,
-    vpuBasePath,
-    troutePath,
-    availableVariablesList,
-    variable,
-    fetchOpts,
-    set_model,
-    set_date,
-    set_forecast,
-    set_cycle,
-    set_ensemble,
-    set_vpu,
-    set_variable,
-    resetFromKey,
-  ]);
+  }, [stepOrder, opts, selectionState, outputFile, variables, variable, applySelection, set_variable]);
 
   const activeStep = useMemo(
-    () => 
-      
-      steps.find((s) => s.key === activeStepKey) ?? steps[0],
+    () => steps.find((s) => s.key === activeStepKey) ?? steps[0],
     [steps, activeStepKey]
   );
 
@@ -702,10 +567,8 @@ useEffect(() => {
   // ─────────────────────────────────────
   return (
     <Fragment>
-      {/* ✅ Breadcrumb Component */}
       <Breadcrumb segments={breadcrumbSegments} onClick={handleBreadcrumbClick} />
 
-      {/* Single active dropdown */}
       <Row>
         <IconLabel>
           {activeStep.icon} {activeStep.label}
@@ -715,6 +578,7 @@ useEffect(() => {
           value={activeStep.selected}
           onChangeHandler={activeStep.onChange}
           width={240}
+          isDisabled={!activeStep.enabled}
         />
       </Row>
 
