@@ -1,5 +1,3 @@
-import { getCacheKey, loadArrowFromCache } from "./opfsCache";
-
 export async function listPublicS3Directories(prefix = "v2.2/") {
   const bucket = "ciroh-community-ngen-datastream";
 
@@ -54,11 +52,20 @@ export async function listPublicS3Files(prefix = "v2.2/") {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xml, "application/xml");
     const contents = [...doc.getElementsByTagName("Contents")];
-
+    console.log( contents.map(node => node.getElementsByTagName("Key")[0].textContent))   
     return contents.map(node => node.getElementsByTagName("Key")[0].textContent);
 }
 
 export async function getOptionsFromURL(url) {
+    console.log("getOptionsFromURL called with url:", url);
+    if (url.split('/').includes('troute')){
+      const files = await listPublicS3Files(url);
+      const ncFiles = files.filter(f => f.endsWith('.nc'));
+      const ncFilesParsed = ncFiles.map(f => `s3://ciroh-community-ngen-datastream/${f}`);
+      const options = ncFilesParsed.map((d) => ({ value: d, label: d.split('/').pop() }));
+      const sortedOptions = Array.from(options).sort().reverse();
+      return sortedOptions;
+    }
     const { childNames } = await listPublicS3Directories(url);
     const options = childNames.map((d) => ({ value: d, label: d }));
     const sortedOptions = Array.from(options).sort().reverse();
