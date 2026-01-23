@@ -82,9 +82,7 @@ export default function DataMenu() {
   const loading = useTimeSeriesStore((s) => s.loading);
   const setLoading = useTimeSeriesStore((s) => s.set_loading);
 
-  // ─────────────────────────────────────
-  // Local UI state
-  // ─────────────────────────────────────
+
   const [loadingText, setLoadingText] = useState('');
   const [outputFile, setOutputFile] = useState(''); // store VALUE (not label)
   const [opts, setOpts] = useState(EMPTY_OPTS);
@@ -102,9 +100,7 @@ export default function DataMenu() {
     deriveActiveKey({ model, date, forecast, cycle, ensemble, vpu })
   );
 
-  // ─────────────────────────────────────
-  // Helpers
-  // ─────────────────────────────────────
+
   const handleLoading = (text) => {
     setLoading(true);
     setLoadingText(text);
@@ -188,9 +184,7 @@ export default function DataMenu() {
     [fetchOpts, setOpt]
   );
 
-  // ─────────────────────────────────────
-  // Bootstrap defaults (ends at outputFile)
-  // ─────────────────────────────────────
+
   useEffect(() => {
     let cancelled = false;
 
@@ -303,9 +297,8 @@ export default function DataMenu() {
     set_vpu,
   ]);
 
-  // ─────────────────────────────────────
-  // Apply selection (generic) + prefetch next step (fixes “empty dropdown” moments)
-  // ─────────────────────────────────────
+
+
   const applySelection = useCallback(
     async (stepKey, value) => {
       if (!value) return;
@@ -356,6 +349,7 @@ export default function DataMenu() {
 
       // Prefetch next options immediately (prevents empty dropdown)
       await prefetchOptions(nextKey, sNext);
+
     },
     [
       selectionState,
@@ -372,9 +366,39 @@ export default function DataMenu() {
     ]
   );
 
-  // ─────────────────────────────────────
-  // Breadcrumb segments (no v2.2_hydrofabric)
-  // ─────────────────────────────────────
+  useEffect(() => {
+    const stepKey = activeStepKey;
+    const list = opts[stepKey] || [];
+
+    // only do this when we actually have exactly 1 option
+    if (list.length !== 1) return;
+
+    const onlyValue = list[0]?.value;
+    if (!onlyValue) return;
+
+    const currentValue = selectionState[stepKey]; // works for outputFile too (it’s in selectionState)
+    const orderNow = getStepOrder(selectionState.forecast);
+
+    // If already selected, and this isn't the last step, auto-advance
+    if (currentValue === onlyValue) {
+      const nextKey = nextAfter(orderNow, stepKey);
+      if (nextKey !== stepKey && stepKey !== 'outputFile') {
+        setActiveStepKey(nextKey);
+        // prefetch next so the next dropdown isn't empty
+        void prefetchOptions(nextKey, selectionState);
+      }
+      return;
+    }
+
+    // Not selected yet -> select it and continue the normal pipeline
+    void applySelection(stepKey, onlyValue);
+  }, [
+    activeStepKey,
+    opts,
+    selectionState,
+  ]);
+
+
   const outputFileLabel = useMemo(() => {
     const sel = findSelected(opts.outputFile, outputFile);
     return sel?.label || outputFile;
@@ -393,10 +417,11 @@ export default function DataMenu() {
       vpu ? { id: 'vpu', label: vpu, kind: 'value', resetKey: 'vpu' } : null,
       outputFile ? { id: 'outputFile', label: outputFileLabel, kind: 'value', resetKey: 'outputFile' } : null,
     ].filter(Boolean);
-  }, [model, date, forecast, cycle, ensemble, vpu, outputFile, outputFileLabel]);
+  }, [model, date, forecast, cycle, ensemble, vpu, outputFile]);
 
   const handleBreadcrumbClick = useCallback(
     async (seg) => {
+      console.log('Breadcrumb clicked:', seg);
       if (!seg) return;
 
       // outputs -> reset from model (inclusive) and show model
@@ -430,16 +455,13 @@ export default function DataMenu() {
 
         setActiveStepKey(nextKey);
 
-        // ✅ force prefetch so dropdown isn't empty
         await prefetchOptions(nextKey, sNext);
       }
     },
     [resetFromKey, prefetchOptions, selectionState, forecast, nextAfter]
   );
 
-  // ─────────────────────────────────────
-  // Steps UI (generated from stepOrder)
-  // ─────────────────────────────────────
+ 
   const steps = useMemo(() => {
     const arr = stepOrder.map((key) => {
       const options = opts[key] || [];
@@ -469,24 +491,6 @@ export default function DataMenu() {
       };
     });
 
-    // Variable dropdown (optional, not part of navigation)
-    const availableVariablesList = (variables || []).map((vv) => ({ value: vv, label: vv }));
-    if (availableVariablesList.length > 0) {
-      arr.push({
-        key: 'variable',
-        label: 'Variable',
-        icon: <VariableIcon />,
-        options: availableVariablesList,
-        selected: findSelected(availableVariablesList, variable),
-        enabled: true,
-        onChange: (v) => {
-          const opt = firstOpt(v);
-          if (!opt) return;
-          set_variable(opt.value);
-        },
-      });
-    }
-
     return arr;
   }, [stepOrder, opts, selectionState, outputFile, variables, variable, applySelection, set_variable]);
 
@@ -495,9 +499,7 @@ export default function DataMenu() {
     [steps, activeStepKey]
   );
 
-  // ─────────────────────────────────────
-  // Visualization
-  // ─────────────────────────────────────
+  
   const handleVisulization = async () => {
     if (!feature_id || !vpu) {
       handleError('Please select a feature on the map first');
@@ -562,25 +564,25 @@ export default function DataMenu() {
     }
   };
 
-  // ─────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────
   return (
     <Fragment>
+      <p>S3 Path</p>
       <Breadcrumb segments={breadcrumbSegments} onClick={handleBreadcrumbClick} />
-
-      <Row>
-        <IconLabel>
-          {activeStep.icon} {activeStep.label}
-        </IconLabel>
-        <SelectComponent
-          optionsList={activeStep.options}
-          value={activeStep.selected}
-          onChangeHandler={activeStep.onChange}
-          width={240}
-          isDisabled={!activeStep.enabled}
-        />
-      </Row>
+        {
+        activeStep.options.length > 1 &&  
+        <Row>
+          <IconLabel>
+            {activeStep.icon} {activeStep.label}
+          </IconLabel>
+          <SelectComponent
+            optionsList={activeStep.options}
+            value={activeStep.selected}
+            onChangeHandler={activeStep.onChange}
+            width={240}
+            isDisabled={!activeStep.enabled}
+          />
+        </Row>
+        }
 
       <div style={{ marginTop: '10px', paddingLeft: '100px', paddingRight: '100px' }}>
         <XButton onClick={handleVisulization}>Update</XButton>

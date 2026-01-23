@@ -36,6 +36,7 @@ export const deriveActiveKey = ({ model, date, forecast, cycle, ensemble, vpu })
 
   if (!vpu) return 'vpu';
   return 'outputFile';
+  // return 'variables'
 };
 
 // Builds the S3 "list options" path for a given step based on current selections.
