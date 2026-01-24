@@ -54,6 +54,7 @@ export default function DataMenu() {
   const [availableCyclesList, setAvailableCyclesList] = useState([]);
   const [availableEnsembleList, setAvailableEnsembleList] = useState([]);
   const [availableOutputFiles, setAvailableOutputFiles] = useState([]);
+  const [currentPath, setCurrentPath] = useState('outputs');
   /* ─────────────────────────────────────
      Helpers
      ───────────────────────────────────── */
@@ -157,12 +158,15 @@ export default function DataMenu() {
     if (opt) set_model(opt.value);
     const options = await getOptionsFromURL(`outputs/${opt.value}/v2.2_hydrofabric/`);
     setAvailableDatesList(options);
+    set_date(options[0]?.value);
+    setAvailableOutputFiles([]);
     setAvailableEnsembleList([]);
     setAvailableCyclesList([]);
     setForecastOptions([]);
     set_forecast('');
     set_cycle('');
     set_ensemble('');
+    set_outputFile('');
   };
 
   const handleChangeDate = async (v) => {
@@ -170,8 +174,10 @@ export default function DataMenu() {
     if (opt) set_date(opt.value); 
     const options = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${opt.value}/`);
     setForecastOptions(options);
+    set_forecast(options[0]?.value);
     setAvailableEnsembleList([]);
     setAvailableCyclesList([]);
+    setAvailableOutputFiles([]);
     set_cycle('');
     set_ensemble('');
     set_outputFile('');
@@ -182,9 +188,23 @@ export default function DataMenu() {
     if (opt) set_forecast(opt.value);
     const options = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/`);
     setAvailableCyclesList(options);
-    setAvailableEnsembleList([]);
-    set_ensemble('');
-    set_outputFile('');
+    set_cycle(options[0]?.value);
+    if (opt.value === 'medium_range') {
+      const ensembleOptions = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/${options[0]?.value}/`);
+      setAvailableEnsembleList(ensembleOptions);
+      set_ensemble(ensembleOptions[0]?.value); 
+      const outputFileOptions = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/${options[0]?.value}/${ensembleOptions[0]?.value}/${vpu}/ngen-run/outputs/troute/`);
+      setAvailableOutputFiles(outputFileOptions);
+      set_outputFile(outputFileOptions[0]?.value);
+    }
+    else{
+      setAvailableEnsembleList([]);
+      set_ensemble('');
+      const outputFileOptions = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/${options[0]?.value}/${vpu}/ngen-run/outputs/troute/`);
+      setAvailableOutputFiles(outputFileOptions);
+      set_outputFile(outputFileOptions[0]?.value);
+    }
+
   };
 
   const handleChangeCycle = async (v) => {
@@ -193,16 +213,26 @@ export default function DataMenu() {
     if(forecast =='medium_range'){
       const options = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/`);
       setAvailableEnsembleList(options);
+      set_ensemble(options[0]?.value);
+      const outputFileOptions = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/${options[0]?.value}/${vpu}/ngen-run/outputs/troute/`);
+      setAvailableOutputFiles(outputFileOptions);
+      set_outputFile(outputFileOptions[0]?.value);
     }
     else{
+      const outputFileOptions = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/${vpu}/ngen-run/outputs/troute/`);
       setAvailableEnsembleList([]);
+      set_ensemble('');
+      setAvailableOutputFiles(outputFileOptions);
+      set_outputFile(outputFileOptions[0]?.value);
     }
   };
 
-  const handleChangeEnsemble = (v) => {
+  const handleChangeEnsemble = async(v) => {
     const opt =firstOpt(v)
     if (opt) set_ensemble(opt.value);
-    set_outputFile('');
+    const options = await getOptionsFromURL(`outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/${vpu}/ngen-run/outputs/troute/`);
+    setAvailableOutputFiles(options);
+    set_outputFile(options[0]?.value);
   };
 
   const handleChangeOutputFile = (v) => {
@@ -240,6 +270,11 @@ export default function DataMenu() {
     fetchInitialData();
 
   }, []);
+
+  // useEffect(() => {
+  //   if (!forecast) return;
+
+  // }, [forecast, cycle]);
 
 
   const availableVariablesList = useMemo(() => {
@@ -298,6 +333,8 @@ export default function DataMenu() {
   return (
     <Fragment>
       <Fragment>
+        {
+         availableModelsList.length > 0 && (
         <Row>
           <IconLabel> <ModelIcon/> Model </IconLabel>
           <SelectComponent
@@ -306,23 +343,32 @@ export default function DataMenu() {
             onChangeHandler={handleChangeModel}
           />
         </Row>
+ 
+         ) 
+        }
+       {
+          availableDatesList.length > 0 && (
            <Row>
-            <IconLabel> <DateIcon/> Date</IconLabel>
+            <IconLabel> <DateIcon/> Date </IconLabel>
             <SelectComponent
               optionsList={availableDatesList}
               value={selectedDateOption}
               onChangeHandler={handleChangeDate}
             />
           </Row>
-        <Row>
-          <IconLabel> <ForecastIcon/>Forecast</IconLabel>
-          <SelectComponent
-            optionsList={availableForecastList}
-            value={selectedForecastOption}
-            onChangeHandler={handleChangeForecast}
-          />
-        </Row>
-
+ 
+          )
+        }
+       {availableForecastList?.length > 0 && (
+          <Row>
+            <IconLabel> <ForecastIcon/>Forecast</IconLabel>
+            <SelectComponent
+              optionsList={availableForecastList}
+              value={selectedForecastOption}
+              onChangeHandler={handleChangeForecast}
+            />
+          </Row>
+        )}  
         {availableCyclesList?.length > 0 && (
           <Row>
             <IconLabel> <CycleIcon/> Cycle</IconLabel>
