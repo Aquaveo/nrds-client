@@ -5,20 +5,15 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer } from "@deck.gl/layers";
 import Map, { Source, Popup } from 'react-map-gl/maplibre';
 import { Protocol } from 'pmtiles';
-import { makeGpkgUrl, makePrefix } from '../../lib/s3Utils';
-import { loadVpuData, getVariables, getTimeseries, getFeatureIDs,  getDistinctFeatureIds, getDistinctTimes, getVpuVariableFlat, checkForTable  } from 'features/DataStream/lib/queryData';
 import useTimeSeriesStore from '../../store/Timeseries';
 import useDataStreamStore from '../../store/Datastream';
-import useS3DataStreamBucketStore from '../../store/s3Store';
 import { useVPUStore } from '../../store/Layers';
 import { useLayersStore, useFeatureStore } from '../../store/Layers';
 import { PopupContent } from '../styles/Styles';
 import { reorderLayers, computeBounds, convertFeaturesToPaths, valueToColor,  getValueAtTimeFlat } from '../../lib/layers';
-import { makeTitle, layerIdToFeatureType } from '../../lib/utils';
+import { layerIdToFeatureType } from '../../lib/utils';
 import { getCentroid } from '../../lib/layers';
-import { toast } from 'react-toastify';
 
-// NEW: layer hooks
 import {
   useCatchmentLayers,
   useFlowPathsLayer,
@@ -50,35 +45,18 @@ const MapComponent = () => {
 
   const selectedFeatureId = useTimeSeriesStore((state) => state.feature_id);
   const loading = useTimeSeriesStore((state) => state.loading);
-  const loadingText = useTimeSeriesStore((state) => state.loadingText);
   const set_loading_text = useTimeSeriesStore((state) => state.set_loading_text);
-  // const table = useTimeSeriesStore((state) => state.table);
-  // const setLoading = useTimeSeriesStore((state) => state.set_loading);
-  // const set_series = useTimeSeriesStore((state) => state.set_series);
   const set_feature_id = useTimeSeriesStore((state) => state.set_feature_id);
-  // const set_variable = useTimeSeriesStore((state) => state.set_variable);
-  // const set_layout = useTimeSeriesStore((state) => state.set_layout);
   const reset = useTimeSeriesStore((state) => state.reset);
 
   const nexus_pmtiles = useDataStreamStore((state) => state.nexus_pmtiles);
   const conus_pmtiles = useDataStreamStore((state) => state.community_pmtiles);
-  // const forecast = useDataStreamStore((state) => state.forecast);
-  // const outputFile = useDataStreamStore((state) => state.outputFile);
-  // const cacheKey = useDataStreamStore((state) => state.cache_key);
 
   const set_vpu = useDataStreamStore((state) => state.set_vpu);
-  // const set_variables = useDataStreamStore((state) => state.set_variables);
-
-
-  // const prefix = useS3DataStreamBucketStore((state) => state.prefix);
-
   const set_hovered_feature = useFeatureStore((state) => state.set_hovered_feature);
   const hovered_feature = useFeatureStore((state) => state.hovered_feature);
   const set_selected_feature = useFeatureStore((state) => state.set_selected_feature);
   const selectedMapFeature = useFeatureStore((state) => state.selected_feature);
-
-  // const set_feature_ids = useVPUStore((state) => state.set_feature_ids);
-  
 
   const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
   const variable = useTimeSeriesStore((s) => s.variable);
@@ -87,8 +65,6 @@ const MapComponent = () => {
   const timesArr = useVPUStore((s) => s.times);
   const valuesByVar = useVPUStore((s) => s.valuesByVar);
   const pathData = useVPUStore((s) => s.pathData);
-  // const setAnimationIndex = useVPUStore((s) => s.setAnimationIndex);
-  // const setVarData = useVPUStore((s) => s.setVarData);
   const setPathData = useVPUStore((s) => s.setPathData);
   const deckOverlayRef = useRef(null);
 
@@ -136,7 +112,7 @@ const handleMapLoad = useCallback((event) => {
   });
   reorderLayers(map);
 
-  // ✅ init deck overlay once, when map is guaranteed to exist
+  // init deck overlay once, when map is guaranteed to exist
   if (!deckOverlayRef.current) {
     deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
     map.addControl(deckOverlayRef.current);
@@ -239,25 +215,6 @@ const handleMapLoad = useCallback((event) => {
   }, [isNexusVisible, isCatchmentsVisible, isFlowPathsVisible, isConusGaugesVisible]);
 
  
-  // useEffect(() => {
-  //   const map =
-  //     mapRef.current && mapRef.current.getMap ? mapRef.current.getMap() : mapRef.current;
-
-  //   if (!map) return;
-
-  //   if (!deckOverlayRef.current) {
-  //     deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
-  //     map.addControl(deckOverlayRef.current);
-  //   }
-
-  //   return () => {
-  //     if (deckOverlayRef.current) {
-        
-  //       deckOverlayRef.current = null;
-  //     }
-  //   };
-  // }, []);
-
 useEffect(() => {
   const map =
     mapRef.current && mapRef.current.getMap ? mapRef.current.getMap() : mapRef.current;
@@ -378,13 +335,10 @@ useEffect(() => {
 
   const handleMapClick = async (event) => {
    if (loading) {
-      // toast.info('Data is already loading, please wait...', { autoClose: 300 });
       set_loading_text('Data is already loading, please wait...');
       set_loading_text('');
       return;
     }
-
-    // setLoading(true);
     reset();
 
     const map = event.target;
@@ -405,92 +359,12 @@ useEffect(() => {
         longitude: lon,
         ...feature.properties,
       });
-
-
       const featureIdProperty = layerIdToFeatureType(layerId);
       const unbiased_id = feature.properties[featureIdProperty];
       set_feature_id(unbiased_id);
-
-      const id = unbiased_id.split('-')[1];
       const vpu_str = `VPU_${feature.properties.vpuid}`;
       set_vpu(vpu_str);
-     
-      // const vpu_gpkg = makeGpkgUrl(vpu_str);
       break;
-      // if(!outputFile){
-      //   toast.warning('No Output File found.', { autoClose: 3000 });
-      //   setLoading(false);
-      //   return;
-      // }
-      // const toastId = toast.loading(`MAP- Loading data for id: ${id}...`, {
-      //   closeOnClick: false,
-      //   draggable: false,
-      // });
-      // try {
-      //   // await loadVpuData(model, date, forecast, cycle, ensemble, vpu_str, outputFile, vpu_gpkg);
-      //   const tableExists = await checkForTable(cacheKey);
-      //   if (!tableExists) {
-      //     await loadVpuData(cacheKey, prefix, vpu_gpkg);
-      //     const featureIDs = await getFeatureIDs(cacheKey);
-      //     set_feature_ids(featureIDs);
-      //   }
-      // } catch (err) {
-      //   toast.update(toastId, {
-      //     render: `No data for id: ${id}`,
-      //     type: 'warning',
-      //     isLoading: false,
-      //     autoClose: 500,
-      //     closeOnClick: true,
-      //   });
-      //   console.error('No data for VPU', vpu_str, err);
-      //   setLoading(false);
-      //   continue;
-      // }
-      // try {
-      //   const variables = await getVariables({ cacheKey });
-      //   const series = await getTimeseries(id, cacheKey, variables[0]);
-      //   const xy = series.map((d) => ({
-      //     x: new Date(d.time),
-      //     y: d.flow,
-      //    }));
-      //   const textToat = `Loaded ${xy.length} points for id: ${id}`;
-      //   set_variables(variables);
-      //   set_variable(variables[0]);
-      //   set_series(xy);
-      //   set_layout({
-      //     yaxis: variables[0],
-      //     xaxis: '',
-      //     title: makeTitle(forecast, unbiased_id),
-      //   });
-      //   const [featureIds, times, flat] = await Promise.all([
-      //     getDistinctFeatureIds(cacheKey),
-      //     getDistinctTimes(cacheKey),
-      //     getVpuVariableFlat(cacheKey, variables[0]),
-      //   ]);
-
-      //   setAnimationIndex(featureIds, times);
-      //   setVarData(variables[0], flat);
-
-      //   toast.update(toastId, {
-      //     render: `${textToat}`,
-      //     type: 'success',
-      //     isLoading: false,
-      //     autoClose: 3000,
-      //     closeOnClick: true,
-      //   });
-      //   setLoading(false);
-      // } catch (err) {
-      //     toast.update(toastId, {
-      //       render: `Failed to load data for id: ${id}`,
-      //       type: 'error',
-      //       isLoading: false,
-      //       autoClose: 5000,
-      //       closeOnClick: true,
-      //     });
-      //     setLoading(false);
-      //     console.error('Failed to load timeseries for', id, err);
-      // }
-      // break;
     }
   };
 
