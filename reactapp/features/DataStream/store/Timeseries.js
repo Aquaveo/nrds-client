@@ -11,8 +11,8 @@ const useTimeSeriesStore = create((set, get ) => ({
         "xaxis": "Simulation Time Period (YYYY-MM-DD)",
         "title": "TimeSeries",
     },
-    // table: '',
     loading: false,
+    loadingText: '' ,
     currentTimeIndex: 0,
 
     // playback state
@@ -58,13 +58,12 @@ const useTimeSeriesStore = create((set, get ) => ({
       return `T+${hours}h`;
     },
     set_loading: (isLoading) => set({ loading: isLoading }),
-    // set_table: (newTable) => set({table: newTable}),
+    set_loading_text: (newLoadingText) => set({ loadingText: newLoadingText }),
     set_feature_id: (newFeatureId) => set({ feature_id: newFeatureId }),
     set_series: (newSeries) => set({ series: newSeries }),
     set_chart_layout: (newLayout) => set({ chart_layout: newLayout }),
     set_variable: (newVariable) => set({ variable: newVariable }),
     set_layout: (newLayout) => set({layout: newLayout }),
-    // reset_series: () => set({ series: [] }),
     reset_series: () => set({ series: [], currentTimeIndex: 0, isPlaying: false }),
     reset: () => set({
         series: [],

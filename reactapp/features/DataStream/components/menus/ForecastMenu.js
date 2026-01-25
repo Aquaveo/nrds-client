@@ -16,7 +16,6 @@ const ForecastMenu = () => {
   //   return series.length > 0;
   //  }, [series]);
 const isopen = useMemo(() => {
-    console.log('feature_id in ForecastMenu:', feature_id);
     return feature_id != null;
 }, [feature_id]);
 
