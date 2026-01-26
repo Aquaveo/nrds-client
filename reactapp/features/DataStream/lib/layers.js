@@ -532,25 +532,29 @@ export function computeBounds(varData) {
   return { min, max };
 }
 
+
 export function convertFeaturesToPaths(features, featureIdToIndex) {
-  return features
-    .map((f) => {
-      const id = f.properties?.id;
-      const featureIndex = featureIdToIndex[id];
-      if (!id || featureIndex === undefined) return null;
+  const out = [];
 
-      // deck PathLayer supports LineString coords or MultiLineString coords
-      const geom = f.geometry;
-      if (!geom) return null;
+  for (const f of features) {
+    const rawId = f.id ?? f.properties?.id;
+    if (rawId == null) continue;
 
-      const path =
-        geom.type === "LineString" ? geom.coordinates :
-        geom.type === "MultiLineString" ? geom.coordinates :
-        null;
+    const id = String(rawId);
+    const featureIndex = featureIdToIndex[id];
+    if (featureIndex === undefined) continue;
 
-      if (!path) return null;
+    const geom = f.geometry;
+    if (!geom) continue;
 
-      return { id, featureIndex, path, properties: f.properties };
-    })
-    .filter(Boolean);
+    if (geom.type === "LineString") {
+      out.push({ id, featureIndex, path: geom.coordinates, properties: f.properties });
+    } else if (geom.type === "MultiLineString") {
+      geom.coordinates.forEach((line, i) => {
+        out.push({ id: `${id}-${i}`, featureIndex, path: line, properties: f.properties });
+      });
+    }
+  }
+
+  return out;
 }

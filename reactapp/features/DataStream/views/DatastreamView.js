@@ -95,17 +95,19 @@ const DataStreamView = () => {
     try {
       const tableExists = await checkForTable(cacheKey);
       if (!tableExists) {
-        await loadVpuData(cacheKey, prefix, vpu_gpkg);
+        try{
+          await loadVpuData(cacheKey, prefix, vpu_gpkg);
+        }catch(err){
+          console.error('No data for VPU', vpu, err);
+          set_loading_text('No data available for selected VPU');
+          setLoading(false);
+        } 
         const featureIDs = await getFeatureIDs(cacheKey);
         set_feature_ids(featureIDs);
       }
-    } catch (err) {
-      console.error('No data for VPU', vpu, err);
-      set_loading_text('No data available for selected VPU');
-      setLoading(false);
-    }
-    try {
       const variables = await getVariables({ cacheKey });
+
+      
       const series = await getTimeseries(id, cacheKey, variables[0]);
       const xy = series.map((d) => ({
         x: new Date(d.time),
@@ -114,22 +116,25 @@ const DataStreamView = () => {
       set_loading_text(`Loaded ${xy.length} points for id: ${id}`);
       set_variables(variables);
       set_variable(variables[0]);
+      const [featureIds, times, flat] = await Promise.all([
+        getDistinctFeatureIds(cacheKey),
+        getDistinctTimes(cacheKey),
+        getVpuVariableFlat(cacheKey, variables[0]),
+      ]);
+
+      setAnimationIndex(featureIds, times);
+      setVarData(variables[0], flat);
+
       set_series(xy);
       set_layout({
         yaxis: variables[0],
         xaxis: '',
         title: makeTitle(forecast, feature_id),
       });
-      const [featureIds, times, flat] = await Promise.all([
-        getDistinctFeatureIds(cacheKey),
-        getDistinctTimes(cacheKey),
-        getVpuVariableFlat(cacheKey, variables[0]),
-      ]);
-      setAnimationIndex(featureIds, times);
-      setVarData(variables[0], flat);
-      set_loading_text('');
+     set_loading_text('');
       setLoading(false);
-    } catch (err) {
+    } 
+    catch (err) {
         set_loading_text(`Failed to load timeseries for id: ${id}`);
         setLoading(false);
         console.error('Failed to load timeseries for', id, err);

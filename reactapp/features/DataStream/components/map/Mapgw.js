@@ -1,9 +1,9 @@
 // MapComponent.jcacheKeys
-import React, { useEffect, useCallback, useRef, useMemo, useState } from 'react';
+import React, { useEffect, useCallback, useRef, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer } from "@deck.gl/layers";
-import Map, { Source, Popup, useControl } from 'react-map-gl/maplibre';
+import Map, { Source, Popup } from 'react-map-gl/maplibre';
 import { Protocol } from 'pmtiles';
 import useTimeSeriesStore from '../../store/Timeseries';
 import useDataStreamStore from '../../store/Datastream';
@@ -11,7 +11,7 @@ import { useVPUStore } from '../../store/Layers';
 import { useLayersStore, useFeatureStore } from '../../store/Layers';
 import { PopupContent } from '../styles/Styles';
 import { 
-  // mapStyleUrl,
+  mapStyleUrl,
   dividesOutlineColor, 
   dividesHighlightFillColor, 
   dividesHighlightOutlineColor, 
@@ -36,12 +36,6 @@ import {
   useNexusLayers,
 } from './MapLayers';
 
-
-function DeckGLOverlay(props) {
-  const overlay = useControl(() => new MapboxOverlay(props));
-  overlay.setProps(props);
-  return null;
-}
 
 const MapComponent = () => {
   const isNexusVisible = useLayersStore((state) => state.nexus.visible);
@@ -73,13 +67,12 @@ const MapComponent = () => {
   const valuesByVar = useVPUStore((s) => s.valuesByVar);
   const pathData = useVPUStore((s) => s.pathData);
   const setPathData = useVPUStore((s) => s.setPathData);
-  // const deckOverlayRef = useRef(null);
+  const deckOverlayRef = useRef(null);
 
-  const [deckLayers, setDeckLayers] = useState([]);
 
   const mapRef = useRef(null);
 
-const mapStyleUrl = getComputedStyle(document.documentElement).getPropertyValue('--map-style-url').trim();
+
 
 const handleMapLoad = useCallback((event) => {
   const map = event.target;
@@ -92,6 +85,11 @@ const handleMapLoad = useCallback((event) => {
   });
   reorderLayers(map);
 
+  // init deck overlay once, when map is guaranteed to exist
+  if (!deckOverlayRef.current) {
+    deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
+    map.addControl(deckOverlayRef.current);
+  }
 }, []); // deckOverlayRef is a ref; no dep needed
 
   const onHover = useCallback(
@@ -163,8 +161,18 @@ const handleMapLoad = useCallback((event) => {
     const map = mapRef.current && mapRef.current.getMap ? mapRef.current.getMap() : mapRef.current;
     if (!map) return;
 
+    if (!deckOverlayRef.current) {
+      deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
+      map.addControl(deckOverlayRef.current);
+    }
+
     return () => {
       maplibregl.removeProtocol('pmtiles');
+      if (deckOverlayRef.current) {
+        deckOverlayRef.current.finalize?.();
+        map.removeControl(deckOverlayRef.current);
+        deckOverlayRef.current = null;
+      }
     };
   }, []);
 
@@ -196,11 +204,7 @@ useEffect(() => {
     if (raf) cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => {
       if (!isFlowPathsVisible) return;
-      const zooom = map.getZoom();
       const feats = map.queryRenderedFeatures({ layers: ["flowpaths"] });
-      if(feats.length === 0){
-        console.log(`zoom: ${zooom.toFixed(2)}, features: ${feats.length}`);
-      }
       const matched = feats.filter(
         (f) => featureIdToIndex[f.properties?.id] !== undefined
       );
@@ -216,9 +220,9 @@ useEffect(() => {
   // update when the view changes (zoom/pan)
   map.on("moveend", run);
   map.on("zoomend", run);
- 
+
   // also update when new tiles load after moving/zooming
-  // map.on("idle", run);
+  map.on("idle", run);
 
   return () => {
     if (raf) cancelAnimationFrame(raf);
@@ -228,59 +232,13 @@ useEffect(() => {
   };
 }, [featureIdToIndex, setPathData]);
 
-// useEffect(() => {
-//   const map = mapRef.current?.getMap?.() ?? mapRef.current;
-//   if (!map) return;
 
-//   const hasIndex = featureIdToIndex && Object.keys(featureIdToIndex).length > 0;
-//   if (!hasIndex) return;
-
-//   let raf = null;
-//   let pendingIdle = false;
-
-//   const run = () => {
-//     pendingIdle = false;
-//     if (raf) cancelAnimationFrame(raf);
-//     raf = requestAnimationFrame(() => {
-//       if (!isFlowPathsVisible) return;
-
-//       const feats = map.queryRenderedFeatures({ layers: ["flowpaths"] });
-
-//       // IMPORTANT: don't wipe Deck just because tiles aren't ready yet
-//       if (!feats.length) return;
-
-//       const matched = feats.filter((f) => {
-//         const id = String(f.id ?? f.properties?.id ?? "");
-//         return featureIdToIndex[id] !== undefined;
-//       });
-
-//       if (!matched.length) return;
-
-//       setPathData(convertFeaturesToPaths(matched, featureIdToIndex));
-//     });
-//   };
-
-//   const schedule = () => {
-//     if (pendingIdle) return;
-//     pendingIdle = true;
-//     map.once("idle", run); // <-- key change
-//   };
-
-//   schedule();
-//   map.on("moveend", schedule);
-//   map.on("zoomend", schedule);
-
-//   return () => {
-//     if (raf) cancelAnimationFrame(raf);
-//     map.off("moveend", schedule);
-//     map.off("zoomend", schedule);
-//   };
-// }, [featureIdToIndex, isFlowPathsVisible, setPathData]);
 
   useEffect(() => {
+    if (!deckOverlayRef.current) return;
 
     if (!isFlowPathsVisible) {
-      setDeckLayers([]);
+      deckOverlayRef.current.setProps({ layers: [] });
       return;
     }
 
@@ -289,42 +247,40 @@ useEffect(() => {
 
     if (!varData || !numTimes || !pathData.length) {
       console.log("deck clear layers");
-      setDeckLayers([]);
+      deckOverlayRef.current.setProps({ layers: [] });
       return;
     }
 
     const bounds = computeBounds(varData);
 
-    const layers = [
-      new PathLayer({
-        id: "flowpaths-anim",
-        data: pathData,
-        getPath: (d) => d.path,
-        getColor: (d) => {
-          const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
-          return valueToColor(v, bounds);
-        },
-        getWidth: (d) => {
-          const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
-          if (v === null || v <= -9998) return 2;
-          const t = Math.max(0, Math.min(1, (v - bounds.min) / (bounds.max - bounds.min)));
-          return 3 + t * 8;
-        },
-        widthUnits: "pixels",
-        widthMinPixels: 2,
-        widthMaxPixels: 12,
-        capRounded: true,
-        jointRounded: true,
-        pickable: false,
-        updateTriggers: {
-          getColor: [currentTimeIndex, variable],
-          getWidth: [currentTimeIndex, variable],
-        },
-      })
-    ]
-    
-    setDeckLayers(layers)
-  }, [valuesByVar, timesArr, pathData, currentTimeIndex]);
+    const layer = new PathLayer({
+      id: "flowpaths-anim",
+      data: pathData,
+      getPath: (d) => d.path,
+      getColor: (d) => {
+        const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
+        return valueToColor(v, bounds);
+      },
+      getWidth: (d) => {
+        const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
+        if (v === null || v <= -9998) return 2;
+        const t = Math.max(0, Math.min(1, (v - bounds.min) / (bounds.max - bounds.min)));
+        return 3 + t * 8;
+      },
+      widthUnits: "pixels",
+      widthMinPixels: 2,
+      widthMaxPixels: 12,
+      capRounded: true,
+      jointRounded: true,
+      pickable: false,
+      updateTriggers: {
+        getColor: [currentTimeIndex, variable],
+        getWidth: [currentTimeIndex, variable],
+      },
+    });
+
+    deckOverlayRef.current.setProps({ layers: [layer] });
+  }, [isFlowPathsVisible, valuesByVar, variable, timesArr, pathData, currentTimeIndex]);
 
 
 
@@ -411,7 +367,7 @@ useEffect(() => {
       <Source key="nexus" id="nexus" type="vector" url={`pmtiles://${nexus_pmtiles}`}>
         {nexusLayers}
       </Source>
-      <DeckGLOverlay layers={deckLayers} interleaved />
+
       {hovered_feature?.id && (
         <Popup
           longitude={hovered_feature.longitude}
