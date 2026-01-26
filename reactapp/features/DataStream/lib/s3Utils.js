@@ -52,12 +52,12 @@ export async function listPublicS3Files(prefix = "v2.2/") {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xml, "application/xml");
     const contents = [...doc.getElementsByTagName("Contents")];
-    console.log( contents.map(node => node.getElementsByTagName("Key")[0].textContent))   
+    // console.log( contents.map(node => node.getElementsByTagName("Key")[0].textContent))   
     return contents.map(node => node.getElementsByTagName("Key")[0].textContent);
 }
 
 export async function getOptionsFromURL(url) {
-    console.log("getOptionsFromURL called with url:", url);
+    // console.log("getOptionsFromURL called with url:", url);
     if (url.split('/').includes('troute')){
       const files = await listPublicS3Files(url);
       const ncFiles = files.filter(f => f.endsWith('.nc'));
