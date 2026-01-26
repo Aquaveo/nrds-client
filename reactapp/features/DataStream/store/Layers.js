@@ -1,9 +1,8 @@
-import { color } from 'deck.gl';
 import { create } from 'zustand';
 
 export const useLayersStore = create((set) => ({
     nexus: {
-        visible: true,
+        visible: false,
     },
     catchments: {
         visible: true,

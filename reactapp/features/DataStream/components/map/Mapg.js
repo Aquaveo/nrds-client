@@ -10,7 +10,22 @@ import useDataStreamStore from '../../store/Datastream';
 import { useVPUStore } from '../../store/Layers';
 import { useLayersStore, useFeatureStore } from '../../store/Layers';
 import { PopupContent } from '../styles/Styles';
-import { reorderLayers, computeBounds, convertFeaturesToPaths, valueToColor,  getValueAtTimeFlat } from '../../lib/layers';
+import { 
+  mapStyleUrl,
+  dividesOutlineColor, 
+  dividesHighlightFillColor, 
+  dividesHighlightOutlineColor, 
+  flowpathsLineColor, 
+  gaugesCircleColor, 
+  nexusCircleColor, 
+  nexusStrokeColor, 
+  nexusHighlightCircleColor,
+  reorderLayers, 
+  computeBounds, 
+  convertFeaturesToPaths, 
+  valueToColor, 
+  getValueAtTimeFlat 
+} from '../../lib/layers';
 import { layerIdToFeatureType } from '../../lib/utils';
 import { getCentroid } from '../../lib/layers';
 
@@ -20,6 +35,8 @@ import {
   useConusGaugesLayer,
   useNexusLayers,
 } from './MapLayers';
+
+
 
 const onMapLoad = (event) => {
   const map = event.target;
@@ -71,36 +88,7 @@ const MapComponent = () => {
 
   const mapRef = useRef(null);
 
-  // --- Read CSS variables for map styles/colors ---
-  const rootStyles = getComputedStyle(document.documentElement);
 
-  const mapStyleUrl =
-    rootStyles.getPropertyValue('--map-style-url').trim() ||
-    'https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/styles/light-style.json';
-
-  const dividesOutlineColor =
-    rootStyles.getPropertyValue('--map-divides-outline-color').trim() ||
-    'rgba(91, 44, 111, 0.5)';
-  const dividesHighlightFillColor =
-    rootStyles.getPropertyValue('--map-divides-highlight-fill').trim() ||
-    'rgba(5, 49, 243, 0.32)';
-  const dividesHighlightOutlineColor =
-    rootStyles.getPropertyValue('--map-divides-highlight-outline').trim() ||
-    'rgba(253, 0, 253, 0.7)';
-
-  const flowpathsLineColor =
-    rootStyles.getPropertyValue('--map-flowpaths-color').trim() || '#000000';
-
-  const gaugesCircleColor =
-    rootStyles.getPropertyValue('--map-gauges-color').trim() || '#646464';
-
-  const nexusCircleColor =
-    rootStyles.getPropertyValue('--map-nexus-circle-color').trim() || '#1f78b4';
-  const nexusStrokeColor =
-    rootStyles.getPropertyValue('--map-nexus-stroke-color').trim() || '#ffffff';
-  const nexusHighlightCircleColor =
-    rootStyles.getPropertyValue('--map-nexus-highlight-circle-color').trim() ||
-    nexusCircleColor;
 const handleMapLoad = useCallback((event) => {
   const map = event.target;
 
@@ -114,7 +102,7 @@ const handleMapLoad = useCallback((event) => {
 
   // init deck overlay once, when map is guaranteed to exist
   if (!deckOverlayRef.current) {
-    deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
+    deckOverlayRef.current = new MapboxOverlay({ interleaved: false, layers: [] });
     map.addControl(deckOverlayRef.current);
   }
 }, []); // deckOverlayRef is a ref; no dep needed
@@ -189,7 +177,7 @@ const handleMapLoad = useCallback((event) => {
     if (!map) return;
 
     if (!deckOverlayRef.current) {
-      deckOverlayRef.current = new MapboxOverlay({ interleaved: true, layers: [] });
+      deckOverlayRef.current = new MapboxOverlay({ interleaved: false, layers: [] });
       map.addControl(deckOverlayRef.current);
     }
 
@@ -226,13 +214,16 @@ useEffect(() => {
   let raf = null;
 
   const run = () => {
-    // cancel any queued run and schedule at next animation frame
+
+     // cancel any queued run and schedule at next animation frame
     if (raf) cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => {
+      if (!isFlowPathsVisible) return;
       const feats = map.queryRenderedFeatures({ layers: ["flowpaths"] });
       const matched = feats.filter(
         (f) => featureIdToIndex[f.properties?.id] !== undefined
       );
+
       setPathData(convertFeaturesToPaths(matched, featureIdToIndex));
       raf = null;
     });
@@ -260,6 +251,13 @@ useEffect(() => {
 
   useEffect(() => {
     if (!deckOverlayRef.current) return;
+    // console.log("deck setProps", {
+    //   visible: isFlowPathsVisible,
+    //   varData: !!valuesByVar?.[variable],
+    //   times: timesArr?.length,
+    //   pathData: pathData?.length,
+    // });
+
     if (!isFlowPathsVisible) {
       deckOverlayRef.current.setProps({ layers: [] });
       return;
@@ -269,6 +267,7 @@ useEffect(() => {
     const numTimes = timesArr?.length || 0;
 
     if (!varData || !numTimes || !pathData.length) {
+      console.log("deck clear layers");
       deckOverlayRef.current.setProps({ layers: [] });
       return;
     }
@@ -294,7 +293,7 @@ useEffect(() => {
       widthMaxPixels: 12,
       capRounded: true,
       jointRounded: true,
-      pickable: true,
+      pickable: false,
       updateTriggers: {
         getColor: [currentTimeIndex, variable],
         getWidth: [currentTimeIndex, variable],
@@ -307,7 +306,6 @@ useEffect(() => {
 
 
   useEffect(() => {
-    // console.log('Selected feature changed:', selectedMapFeature);
     if (!selectedMapFeature) return;
 
     const map =
@@ -325,6 +323,7 @@ useEffect(() => {
       essential: true,
     });
   }, [selectedMapFeature]);
+
 
   const layersToQuery = useMemo(() => {
     const layers = [];
@@ -377,8 +376,9 @@ useEffect(() => {
       mapStyle={mapStyleUrl}
       onClick={handleMapClick}
       onLoad={handleMapLoad}
-      // onLoad={onMapLoad}
       onMouseMove={onHover}
+      projection="mercator"
+      // onZoom={logZoomChanges}
       interactiveLayerIds={['divides', 'nexus-points', 'flowpaths', 'conus-gauges']}
     >
       <Source key="conus" id="conus" type="vector" url={`pmtiles://${conus_pmtiles}`}>
