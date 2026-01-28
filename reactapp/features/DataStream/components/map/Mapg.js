@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useCallback, useRef, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import maplibregl from 'maplibre-gl';
 import { MapboxOverlay } from "@deck.gl/mapbox";
@@ -43,11 +43,21 @@ function DeckGLOverlay(props) {
 }
 
 const MainMap = () => {
-  const isNexusVisible = useLayersStore((state) => state.nexus.visible);
-  const isCatchmentsVisible = useLayersStore((state) => state.catchments.visible);
-  const isFlowPathsVisible = useLayersStore((state) => state.flowpaths.visible);
-  const isConusGaugesVisible = useLayersStore((state) => state.conus_gauges.visible);
-  const enabledHovering = useLayersStore((state) => state.hovered_enabled);
+  const { 
+    isNexusVisible, 
+    isCatchmentsVisible, 
+    isFlowPathsVisible, 
+    isConusGaugesVisible, 
+    enabledHovering 
+  } = useLayersStore(
+    useShallow((s) => ({
+      isNexusVisible: s.nexus.visible,
+      isCatchmentsVisible: s.catchments.visible,
+      isFlowPathsVisible: s.flowpaths.visible,
+      isConusGaugesVisible: s.conus_gauges.visible,
+      enabledHovering: s.hovered_enabled,
+    }))
+  );
 
   const selectedFeatureId = useTimeSeriesStore((state) => state.feature_id);
   const loading = useTimeSeriesStore((state) => state.loading);
@@ -64,15 +74,19 @@ const MainMap = () => {
   const set_selected_feature = useFeatureStore((state) => state.set_selected_feature);
   const selectedMapFeature = useFeatureStore((state) => state.selected_feature);
 
-  const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
-  const variable = useTimeSeriesStore((s) => s.variable);
 
+  const { currentTimeIndex, variable } = useTimeSeriesStore(
+    useShallow((s) => ({
+      currentTimeIndex: s.currentTimeIndex,
+      variable: s.variable,
+    }))
+  );
 
   const { featureIdToIndex, timesArr, valuesByVar } = useVPUStore(
     useShallow((s) => ({
       featureIdToIndex: s.featureIdToIndex,
       timesArr: s.times,
-      valuesByVar: s.valuesByVar,
+      valuesByVar: s.valuesByVar?.[variable],
     }))
   );
 
@@ -82,20 +96,19 @@ const MainMap = () => {
   const lastSigRef = useRef("");
   const pathDataRef = useRef([]);
 
-  const [pathTick, setPathTick] = React.useState(0);
+  const [pathTick, setPathTick] = useState(0);
   const mapStyleUrl = getComputedStyle(document.documentElement).getPropertyValue('--map-style-url').trim();
 
 
   const deckLayers = useMemo(() => {
     if (!isFlowPathsVisible) return EMPTY_LAYERS;
 
-    const varData = valuesByVar?.[variable];
+    const varData = valuesByVar;
     const numTimes = timesArr?.length || 0;
 
     const pathData = pathDataRef.current;
 
     if (!varData || !numTimes || !pathData?.length) return EMPTY_LAYERS;
-
     const bounds = computeBounds(varData);
 
     return [
@@ -265,10 +278,7 @@ const MainMap = () => {
         }
         lastSigRef.current = sig;
 
-        // IMPORTANT: don’t store properties unless you need them
         pathDataRef.current = convertFeaturesToPaths(matched, featureIdToIndex);
-
-        // trigger deck overlay update without pushing pathData into global state
         setPathTick((t) => t + 1);
 
         raf = null;
@@ -320,7 +330,7 @@ const MainMap = () => {
       set_loading_text('');
       return;
     }
-    reset();
+    // reset();
 
     const map = event.target;
 
