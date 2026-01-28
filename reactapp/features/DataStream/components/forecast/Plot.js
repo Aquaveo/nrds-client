@@ -1,5 +1,4 @@
-// LineChart.js
-import React, { useCallback, useMemo, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import { Zoom, applyMatrixToPoint } from '@visx/zoom';
 import { Group } from '@visx/group';
 import { scaleLinear, scaleTime } from '@visx/scale';
@@ -19,7 +18,14 @@ import { RectClipPath } from '@visx/clip-path';
 import { getVariableUnits } from '../../lib/data';
 import useDataStreamStore from '../../store/Datastream';
 
-function LineChart({ width, height, data, layout }) {
+const INITIAL_MATRIX = Object.freeze({
+  scaleX: 1, scaleY: 1,
+  translateX: 0, translateY: 0,
+  skewX: 0, skewY: 0,
+});
+const MARGIN = Object.freeze({ top: 40, right: 20, bottom: 30, left: 50 });
+
+const LineChart = React.memo(({ width, height, data, layout }) => {
   const forecast = useDataStreamStore((state) => state.forecast);
   const screenWidth = window.innerWidth;
   const fontSize = screenWidth <= 1300 ? 13 : 18;
@@ -96,7 +102,7 @@ function LineChart({ width, height, data, layout }) {
     hideTooltip,
   } = useTooltip();
 
-  const margin = { top: 40, right: 20, bottom: 30, left: 50 };
+  const margin = MARGIN;
   const innerWidth = Math.max(1, width - margin.left - margin.right);
   const innerHeight = Math.max(1, height - margin.top - margin.bottom);
   const EST_LABEL_PX = 100;
@@ -115,6 +121,7 @@ function LineChart({ width, height, data, layout }) {
     [data]
   );
 
+
   const hasData = allData.length > 0;
 
   const { xScale, yScale } = useMemo(() => {
@@ -132,7 +139,7 @@ function LineChart({ width, height, data, layout }) {
     return { xScale: x, yScale: y };
   }, [allData, innerWidth, innerHeight, getDate, getYValue]);
 
-  const tooltipStyles = {
+  const tooltipStyles = useMemo(() => ({
     ...defaultStyles,
     minWidth: 60,
     backgroundColor: tooltipBg,
@@ -142,7 +149,7 @@ function LineChart({ width, height, data, layout }) {
     borderRadius: 6,
     border: `1px solid ${tooltipBorderColor}`,
     padding: '8px 10px',
-  };
+  }), [tooltipBg, tooltipTextColor, tooltipBorderColor]);
 
   const formatDate = useCallback(
     (date) => {
@@ -176,58 +183,62 @@ function LineChart({ width, height, data, layout }) {
           .map((r) => scale.invert((r - m.translateY) / m.scaleY))
       );
 
-  const handleTooltip = useCallback(
-    (event, zoom) => {
-      if (!hasData) return;
+  const lastTooltipKeyRef = useRef("");
 
-      const point = localPoint(event) || { x: 0, y: 0 };
-      const x = point.x - margin.left;
-      const x0 = rescaleXAxis(xScale, zoom.transformMatrix).invert(x);
 
-      const tooltipDataArray = [];
+  const handleTooltip = useCallback((event, zoom) => {
+    if (!hasData) return;
 
-      data.forEach((series, seriesIndex) => {
-        const seriesData = series.data;
-        const index = bisectDate(seriesData, x0, 1);
-        const d0 = seriesData[index - 1];
-        const d1 = seriesData[index];
-        let d = d0;
+    const point = localPoint(event);
+    if (!point) return;
 
-        if (d1 && getDate(d1)) {
-          d = x0 - getDate(d0) > getDate(d1) - x0 ? d1 : d0;
-        }
+    const x = point.x - margin.left;
+    const x0 = rescaleXAxis(xScale, zoom.transformMatrix).invert(x);
 
-        tooltipDataArray.push({
-          dataPoint: d,
-          seriesIndex,
-          seriesLabel: series.label,
-        });
-      });
+    // build tooltip data
+    const tooltipDataArray = [];
+    const indices = [];
 
-      const yPositions = tooltipDataArray.map((d) =>
-        rescaleYAxis(yScale, zoom.transformMatrix)(getYValue(d.dataPoint))
-      );
-      const tooltipTopPosition = Math.min(...yPositions) + margin.top;
+    data.forEach((series, seriesIndex) => {
+      const seriesData = series.data ?? [];
+      if (!seriesData.length) return;
 
-      showTooltip({
-        tooltipData: tooltipDataArray,
-        tooltipLeft: point.x,
-        tooltipTop: tooltipTopPosition,
-      });
-    },
-    [
-      hasData,
-      showTooltip,
-      xScale,
-      yScale,
-      data,
-      bisectDate,
-      margin.left,
-      margin.top,
-    ]
-  );
+      const index = bisectDate(seriesData, x0, 1);
+      indices.push(index);
 
-  const constrain = (m) => {
+      const d0 = seriesData[index - 1];
+      const d1 = seriesData[index];
+      let d = d0;
+      if (d1 && getDate(d1)) {
+        d = x0 - getDate(d0) > getDate(d1) - x0 ? d1 : d0;
+      }
+
+      tooltipDataArray.push({ dataPoint: d, seriesIndex, seriesLabel: series.label });
+    });
+
+    // compute top
+    const yPositions = tooltipDataArray.map((d) =>
+      rescaleYAxis(yScale, zoom.transformMatrix)(getYValue(d.dataPoint))
+    );
+    const top = Math.min(...yPositions) + margin.top;
+
+    // key: pixel positions + nearest indices
+    const key = `${Math.round(point.x)}|${Math.round(top)}|${indices.join(",")}`;
+    if (key === lastTooltipKeyRef.current) return;
+    lastTooltipKeyRef.current = key;
+
+    showTooltip({
+      tooltipData: tooltipDataArray,
+      tooltipLeft: point.x,
+      tooltipTop: top,
+    });
+  }, [
+    hasData, margin.left, margin.top,
+    data, bisectDate, getDate, getYValue,
+    showTooltip, xScale, yScale,
+  ]);
+
+  const constrain = useCallback((m) => {
     if (m.scaleX < 1) m.scaleX = 1;
     if (m.scaleY < 1) m.scaleY = 1;
     if (m.translateX > 0) m.translateX = 0;
@@ -238,7 +249,8 @@ function LineChart({ width, height, data, layout }) {
     if (max.y < innerHeight) m.translateY += innerHeight - max.y;
 
     return m;
-  };
+  }, [innerWidth, innerHeight]);
+  
 
   const getSafeXTicks = useCallback(
     (newXScale) => {
@@ -267,14 +279,7 @@ function LineChart({ width, height, data, layout }) {
           scaleXMax={10}
           scaleYMin={1}
           scaleYMax={10}
-          initialTransformMatrix={{
-            scaleX: 1,
-            scaleY: 1,
-            translateX: 0,
-            translateY: 0,
-            skewX: 0,
-            skewY: 0,
-          }}
+          initialTransformMatrix={INITIAL_MATRIX}
           constrain={constrain}
         >
           {(zoom) => {
@@ -497,6 +502,8 @@ function LineChart({ width, height, data, layout }) {
       )}
     </div>
   );
-}
+});
 
+
+LineChart.whyDidYouRender = true;
 export default LineChart;

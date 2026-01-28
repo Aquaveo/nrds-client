@@ -63,25 +63,31 @@ export const useFeatureStore = create((set) => ({
         })),
 }));
 
+const sameArray = (a, b) =>
+  a === b || (a?.length === b?.length && a.every((v, i) => v === b[i]));
+
 export const useVPUStore = create((set) => ({
   featureIds: [],
-  featureIdToIndex: {},   // "wb-123" -> idx
+  featureIdToIndex: {},
   times: [],
-  valuesByVar: {},        // { flow: Float32Array, velocity: Float32Array, ... }
-  pathData: [],           // [{ id, featureIndex, path, properties }]
+  valuesByVar: {},
+  set_feature_ids: (featureIds) => set({ featureIds }),
+  setAnimationIndex: (featureIds, times) =>
+    set((s) => {
+      if (sameArray(s.featureIds, featureIds) && sameArray(s.times, times)) return s;
 
-  setAnimationIndex: (featureIds, times) => {
-    const featureIdToIndex = {};
-    featureIds.forEach((id, idx) => {
-      featureIdToIndex[id] = idx;
-      featureIdToIndex[`wb-${id}`] = idx; // match your pmtiles id format
-    });
-    set({ featureIds, times, featureIdToIndex });
-  },
+      const featureIdToIndex = {};
+      featureIds.forEach((id, idx) => {
+        featureIdToIndex[id] = idx;
+        featureIdToIndex[`wb-${id}`] = idx;
+      });
+
+      return { featureIds, times, featureIdToIndex };
+    }),
 
   setVarData: (variable, flatValues) =>
-    set((s) => ({ valuesByVar: { ...s.valuesByVar, [variable]: flatValues } })),
-
-  setPathData: (pathData) => set({ pathData }),
-  set_feature_ids: (featureIds) => set({ featureIds }),
+    set((s) => {
+      if (s.valuesByVar?.[variable] === flatValues) return s; // same ref => no update
+      return { valuesByVar: { ...s.valuesByVar, [variable]: flatValues } };
+    }),
 }));

@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useCallback } from "react";
 import useTimeSeriesStore from "features/DataStream/store/Timeseries";
 import "./TimeSlider.css";
 
-export const TimeSlider = () => {
+export const TimeSlider = React.memo(() => {
   const series = useTimeSeriesStore((s) => s.series);
   const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
   const setCurrentTimeIndex = useTimeSeriesStore((s) => s.setCurrentTimeIndex);
@@ -150,4 +150,6 @@ export const TimeSlider = () => {
       </div>
     </div>
   );
-};
+});
+
+TimeSlider.whyDidYouRender = true;

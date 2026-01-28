@@ -1,5 +1,5 @@
-// MapComponent.jcacheKeys
 import React, { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import maplibregl from 'maplibre-gl';
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { PathLayer } from "@deck.gl/layers";
@@ -67,11 +67,14 @@ const MainMap = () => {
   const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
   const variable = useTimeSeriesStore((s) => s.variable);
 
-  const featureIdToIndex = useVPUStore((s) => s.featureIdToIndex);
-  const timesArr = useVPUStore((s) => s.times);
-  const valuesByVar = useVPUStore((s) => s.valuesByVar);
-  // const pathData = useVPUStore((s) => s.pathData);
-  // const setPathData = useVPUStore((s) => s.setPathData);
+
+  const { featureIdToIndex, timesArr, valuesByVar } = useVPUStore(
+    useShallow((s) => ({
+      featureIdToIndex: s.featureIdToIndex,
+      timesArr: s.times,
+      valuesByVar: s.valuesByVar,
+    }))
+  );
 
   const EMPTY_LAYERS = useMemo(() => [], []);
 
