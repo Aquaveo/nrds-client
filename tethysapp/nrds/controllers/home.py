@@ -5,10 +5,10 @@ import json
 
 from tethys_sdk.routing import controller
 
-from .data_utils import (
+from ..data_utils import (
     convert_nc_2_df,
 )
-from .app import App
+from ..app import App
 import logging
 
 # the following error is fixed with this lines

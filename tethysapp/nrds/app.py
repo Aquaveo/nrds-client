@@ -17,3 +17,4 @@ class App(TethysAppBase):
     tags = ""
     enable_feedback = False
     feedback_emails = []
+    
