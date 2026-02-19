@@ -3,9 +3,9 @@ import apiClient from "features/Tethys/services/api/client";
 const APP_ROOT_URL = process.env.TETHYS_APP_ROOT_URL;
 
 const appAPI = {
-    getArrowPerVpu: (data) => {
+    getVPUData: (data) => {
         return apiClient.post(
-            `${APP_ROOT_URL}getArrowPerVpu/`, 
+            `${APP_ROOT_URL}getVPUData/`, 
             { ...data },
             {
                 responseType: "arraybuffer",          // key point: binary, not JSON

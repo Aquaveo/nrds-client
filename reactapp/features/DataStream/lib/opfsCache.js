@@ -40,7 +40,7 @@ async function getCacheDir() {
 async function saveArrowToCache(url, writable) {
   try{
     const ncFile = getNCFiles(url);
-    const buffer = await appAPI.getArrowPerVpu({
+    const buffer = await appAPI.getVPUData({
       ncFile,
     });
     

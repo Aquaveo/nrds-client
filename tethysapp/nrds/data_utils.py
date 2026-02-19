@@ -59,7 +59,6 @@ def _get_gages_from_local_gpkg(path: str):
 
     return results
 
-
 def get_gages_from_hydrofabric_remote(url: str, *, anon: bool = True, **storage_options):
     """
     Ref: https://github.com/JoshCu/ngiab_eval/blob/2e8fd96b21a369bb93b2a491b0c303a4018a290e/ngiab_eval/core.py
@@ -109,7 +108,6 @@ def get_simulation_start_end_time_remote(path: str):
 
     time_cfg = realization["time"]
     return time_cfg["start_time"], time_cfg["end_time"]
-
 
 def merge_usgs_nwm30_crosswalk(df, ngen_usgs_gages, usgs_nwm_xwalk_df):
     for gage_pair in ngen_usgs_gages:
@@ -204,9 +202,7 @@ def get_usgs_nwm_xwalk_df() -> pd.DataFrame:
     usgs_nwm_xwalk_df = usgs_nwm_xwalk_df.set_index("primary_location_id")
     return usgs_nwm_xwalk_df
 
-
 def convert_nc_2_df(s3_nc_url: str) -> pd.DataFrame:
     """Convert NetCDF files to Parquet format."""
     df = get_troute_df(s3_nc_url)
     return df
-

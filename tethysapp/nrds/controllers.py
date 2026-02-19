@@ -29,7 +29,7 @@ def home(request):
 
 
 @controller
-def getArrowPerVpu(request):
+def getVPUData(request):
     print("Getting parquet file per vpu...")
     
     file_prefix =  json.loads(request.body.decode("utf-8"))['ncFile']
