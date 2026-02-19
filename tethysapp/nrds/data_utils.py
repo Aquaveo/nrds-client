@@ -1,5 +1,4 @@
 import logging
-import os
 import sqlite3
 import json
 import fsspec
@@ -7,8 +6,6 @@ import tempfile
 import pandas as pd
 import xarray as xr
 from urllib.parse import urlparse
-import io
-import pyarrow as pa
 logger = logging.getLogger(__name__)
 
 USGS_NWM30_XWALK = "s3://ciroh-rti-public-data/teehr-data-warehouse/common/crosswalks/usgs_nwm30_crosswalk.conus.parquet"  # noqa
