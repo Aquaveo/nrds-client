@@ -1,12 +1,11 @@
-import { rest } from 'msw';
+import { http, HttpResponse } from 'msw';
 
 const handlers = [
-  rest.get('http://api.test/api/apps/nrds/', (req, res, ctx) => {
-    return res(
-      ctx.status(200),
-      ctx.json({
-        "title": "Next Gen in a Box Visualizer",
-        "description": "",
+  http.get('http://api.test/api/apps/nrds/', () => {
+    return HttpResponse.json(
+      {
+        "title": "NRDS",
+        "description": "This application helps to visualize the outputs of the model runs created by Next gen in a box and the DataStream",
         "tags": "",
         "package": "nrds",
         "urlNamespace": "nrds",
@@ -15,36 +14,51 @@ const handlers = [
         "exitUrl": "/apps/",
         "rootUrl": "/apps/nrds/",
         "settingsUrl": "/admin/tethys_apps/tethysapp/999/change/"
-      }),
-      ctx.set('Content-Type', 'application/json'),
-    )
-  }),
-  rest.get('http://api.test/api/session/', (req, res, ctx) => {
-    return res(
-      ctx.status(200), 
-      ctx.json({'isAuthenticated': true}),
-      ctx.set('Content-Type', 'application/json'),
-      ctx.set('Set-Cookie', 'sessionid=3mp52f19lnnrl1eeyb4b7xlxm9f2id8d; HttpOnly; Path=/; SameSite=Lax')
+      },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
     );
   }),
-  rest.get('http://api.test/api/csrf/', (req, res, ctx) => {
-    return res(
-      ctx.status(200), 
-      ctx.set('X-CSRFToken', 'SxICmOkFldX4o4YVaySdZq9sgn0eRd3Ih6uFtY8BgU5tMyZc7n90oJ4M2My5i7cy')
+  http.get('http://api.test/api/session/', () => {
+    return HttpResponse.json(
+      { 'isAuthenticated': true },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Set-Cookie": "sessionid=3mp52f19lnnrl1eeyb4b7xlxm9f2id8d; HttpOnly; Path=/; SameSite=Lax",
+        },
+      }
     );
   }),
-  rest.get('http://api.test/api/whoami/', (req, res, ctx) => {
-    return res(
-      ctx.status(200), 
-      ctx.json({
+  http.get('http://api.test/api/csrf/', () => {
+    return HttpResponse.text('', {
+      status: 200,
+      headers: {
+        "X-CSRFToken": "SxICmOkFldX4o4YVaySdZq9sgn0eRd3Ih6uFtY8BgU5tMyZc7n90oJ4M2My5i7cy",
+      },
+    });
+  }),
+  http.get('http://api.test/api/whoami/', () => {
+    return HttpResponse.json(
+      {
         "username": "jsmith",
         "firstName": "John",
         "lastName": "Smith",
         "email": "jsmith@tethys.org",
         "isAuthenticated": true,
         "isStaff": true
-      }),
-      ctx.set('Content-Type', 'application/json'),
+      },
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
     );
   }),
 ];

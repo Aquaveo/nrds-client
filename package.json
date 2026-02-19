@@ -136,13 +136,19 @@
       "<rootDir>/reactapp/**/*.{spec,test}.{js,jsx,ts,tsx}"
     ],
     "testEnvironment": "jsdom",
+    "testEnvironmentOptions": {
+      "customExportConditions": [
+        "node",
+        "default"
+      ]
+    },
     "transform": {
       "^.+\\.(js|jsx|mjs|cjs|ts|tsx)$": "<rootDir>/reactapp/config/tests/transforms/babelTransform.js",
       "^.+\\.css$": "<rootDir>/reactapp/config/tests/transforms/cssTransform.js",
       "^(?!.*\\.(js|jsx|mjs|cjs|ts|tsx|css|json)$)": "<rootDir>/reactapp/config/tests/transforms/fileTransform.js"
     },
     "transformIgnorePatterns": [
-      "[/\\\\]node_modules[/\\\\](?!(ol|ol-mapbox-style|plotly.js|react-plotly.js)[/\\\\]).+\\.(js|jsx|mjs|cjs|ts|tsx)$",
+      "[/\\\\]node_modules[/\\\\](?!(ol|ol-mapbox-style|plotly.js|react-plotly.js|msw|@mswjs|until-async)[/\\\\]).+\\.(js|jsx|mjs|cjs|ts|tsx)$",
       "^.+\\.module\\.(css|sass|scss)$"
     ],
     "moduleFileExtensions": [
@@ -165,6 +171,7 @@
       "<rootDir>/node_modules"
     ],
     "moduleNameMapper": {
+      "^msw/node$": "<rootDir>/node_modules/msw/lib/node/index.js",
       "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "<rootDir>/reactapp/config/tests/mocks/fileMock.js",
       "^.+\\.module\\.(css|sass|scss|less)$": "identity-obj-proxy",
       "\\.(css|less|scss|sss|styl)$": "<rootDir>/node_modules/jest-css-modules"
