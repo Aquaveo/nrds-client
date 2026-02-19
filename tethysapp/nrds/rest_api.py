@@ -1,7 +1,7 @@
 import fsspec
 import pandas as pd
-import xarray as xr
 from rest_framework.decorators import api_view
+from .data_utils import get_troute_df
 
 BUCKET = "ciroh-community-ngen-datastream"
 OUTPUTS_DIR = "outputs"
@@ -76,19 +76,7 @@ def list_available_models():
     return models
 
 
-def get_troute_df(s3_nc_url: str) -> pd.DataFrame:
-    """Load the t-route crosswalk DataFrame."""
-
-    nc_xarray = xr.open_dataset(
-        s3_nc_url,
-        engine="h5netcdf",
-        backend_kwargs={"storage_options": {"anon": True}},
-    )
-    nc_df = nc_xarray.to_dataframe()
-    nc_df = nc_df.reset_index()
-
-    return nc_df
-
+@api_view(['GET'])
 def read_output_file(s3_url: str) -> pd.DataFrame:
     """Read an output file from S3."""
     df = get_troute_df(s3_url)
