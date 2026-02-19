@@ -1,10 +1,8 @@
-from django.http import JsonResponse, HttpResponse
-import pandas as pd
-import os
+from django.http import HttpResponse
 import io
 import pyarrow as pa
 import json
-import geopandas as gpd
+
 from tethys_sdk.routing import controller
 
 from .data_utils import (
