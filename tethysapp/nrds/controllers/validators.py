@@ -11,7 +11,7 @@ VPU_RE = re.compile(r"^VPU_(\d{1,2})$", re.IGNORECASE)
 VPU_NUM_RE = re.compile(r"^\d{1,2}$")
 VPU_LOOSE_RE = re.compile(r"vpu\D*(\d{1,2})", re.IGNORECASE)
 
-ForecastId = Literal["short_range", "medium_range", "analysis_assim_extend"]
+Forecasts = Literal["short_range", "medium_range", "analysis_assim_extend"]
 
 
 def normalize_date_ymd(s: str) -> str:
@@ -56,7 +56,7 @@ class OutputsFilesQuery(BaseModel):
 
     model: str = Field(min_length=1, description="Model id (e.g., cfe_nom)")
     date: str = Field(description="Date in YYYY-MM-DD or YYYY/MM/DD")
-    forecast: ForecastId = Field(description="Forecast id")
+    forecast: Forecasts = Field(description="Forecast id")
     cycle: str = Field(description="Cycle hour (00–23). Forecast-specific allowed values.")
     vpu: str = Field(description="VPU id (e.g., VPU_02). Also accepts '2' or 'VPU 2'.")
     ensemble: Optional[int] = Field(

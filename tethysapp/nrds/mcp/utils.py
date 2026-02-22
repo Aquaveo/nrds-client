@@ -13,6 +13,10 @@ ENDPOINTS = {
     "list_available_cycles": "list-available-cycles",
     "list_available_vpus": "list-available-vpus",
     "list_available_outputs_files": "list-available-outputs-files",
+    "read_netcdf_output_file": "read-output-netcdf-file",
+    "read_parquet_output_file": "read-output-parquet-file",
+    "query_parquet_output_file":"query-output-parquet-file",
+    "query_parquet_output_timeseries": "query-output-parquet-timeseries"
 }
 
 NRDS_API_TOKEN = os.getenv("NRDS_API_TOKEN", "be5f936afa81436a43a116546f8c8f1ad2a86079")

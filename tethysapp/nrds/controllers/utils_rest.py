@@ -1,4 +1,26 @@
 from datetime import datetime
+import pandas as pd
+import duckdb
+
+def _duckdb_query_parquet(file_url: str, query: str) -> pd.DataFrame:
+    """Execute an arbitrary DuckDB query against a parquet file exposed as temp view `output`."""
+    safe_file_url = file_url.replace("'", "''")
+
+    con = duckdb.connect(database=":memory:")
+    try:
+        try:
+            con.execute("LOAD httpfs")
+        except Exception:
+            con.execute("INSTALL httpfs")
+            con.execute("LOAD httpfs")
+
+        con.execute(f"CREATE OR REPLACE TEMP VIEW output AS SELECT * FROM read_parquet('{safe_file_url}')")
+        return con.sql(query).df()
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
 
 def _normalize_date_yyyymmdd(date_str: str | None) -> str | None:
     """Normalize a date string to YYYYMMDD.

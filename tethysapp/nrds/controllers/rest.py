@@ -1,5 +1,7 @@
 import fsspec
+import s3fs
 import os
+import pyarrow.parquet as pq
 import pandas as pd
 from datetime import datetime
 from django.http import JsonResponse
@@ -12,6 +14,7 @@ from .utils_rest import (
     _extract_yyyymmdd_from_date_folder,
     _label_from_id,
     _normalize_date_folder,
+    _duckdb_query_parquet,
 )
 
 BUCKET = os.getenv("BUCKET","ciroh-community-ngen-datastream")
@@ -51,7 +54,7 @@ def list_available_outputs_files(request) -> JsonResponse:
         print(f"🔍 Listing files at {s3_url} ...")
         fs = fsspec.filesystem("s3", anon=True)
         outputs = fs.ls(s3_url, detail=False)
-        files = [f.split("/")[-1] for f in outputs]
+        files = [f.split("s3://ciroh-community-ngen-datastream")[-1] for f in outputs]
         return JsonResponse({"path": s3_url, "files": files}, safe=False)
 
     except FileNotFoundError:
@@ -223,14 +226,151 @@ def list_available_models(_):
             safe=False,
         )
 
-@controller(url="api/read-output-file", login_required=False)
+@controller(url="api/read-output-netcdf-file", login_required=False)
 @api_view(["GET"])
-def read_output_file(request) -> pd.DataFrame:
+def read_netcdf_output_file(request) -> JsonResponse:
     """Read an output file from S3."""
     s3_url = request.GET.get("s3_url")
     df = get_troute_df(s3_url)
-    return df
+    lit_df = df.values.tolist()
+    columns = df.columns.tolist()
+    return JsonResponse({"path": s3_url, "columns": columns, "data": lit_df}, safe=False)
+    
+@controller(url="api/read-output-parquet-file", login_required=False)
+@api_view(["GET"])
+def read_parquet_output_file(request) -> JsonResponse:
+    """Read a parquet output file from S3."""
+    s3_url = request.GET.get("s3_url").strip().split("://", 1)
+    s3 = s3fs.S3FileSystem(anon=True)
+    dataset = pq.ParquetDataset(s3_url, filesystem=s3)
+    df = dataset.read().to_pandas()
+    lit_df = df.values.tolist()
+    columns = df.columns.tolist()
+    return JsonResponse({"path": s3_url, "columns": columns, "data": lit_df}, safe=False)
 
+@controller(url="api/query-output-parquet-file", login_required=False)
+@api_view(["GET"])
+def query_parquet_output_file(request) -> JsonResponse:
+    """Run any DuckDB SQL query against a Parquet file on S3 (view name: `output`)."""
+    query = request.GET.get("query")
+    file_url = request.GET.get("s3_url")
+
+    if not file_url:
+        return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
+    if not query:
+        return JsonResponse({"error": "Missing required query param: query"}, status=400)
+
+    try:
+        df = _duckdb_query_parquet(file_url, query)
+
+        # Make timestamps JSON-friendly
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(df["time"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        return JsonResponse(
+            {
+                "file": file_url,
+                "query": query,
+                "columns": list(df.columns),
+                "rows": int(len(df)),
+                "data": df.to_dict(orient="records"),
+            },
+            safe=True,
+        )
+    except FileNotFoundError:
+        return JsonResponse({"file": file_url, "query": query, "columns": [], "rows": 0, "data": []}, status=404)
+    except Exception as e:
+        return JsonResponse({"file": file_url, "query": query, "error": str(e)}, status=500)
+
+@controller(url="api/query-output-parquet-timeseries", login_required=False)
+@api_view(["GET"])
+def query_parquet_output_timeseries(request) -> JsonResponse:
+    """
+    Query a time series from a Parquet file.
+
+    Params:
+      - s3_url (required)
+      - feature_id (required, int)
+      - type (optional)
+      - start (optional ISO datetime/date)
+      - end (optional ISO datetime/date)
+      - variables (optional, comma-separated subset of: flow,velocity,depth,nudge; default all)
+      - limit (optional, default 5000)
+    """
+    file_url = request.GET.get("s3_url")
+    feature_id = request.GET.get("feature_id")
+
+    if not file_url:
+        return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
+    if feature_id is None:
+        return JsonResponse({"error": "Missing required query param: feature_id"}, status=400)
+
+    try:
+        fid = int(feature_id)
+    except Exception:
+        return JsonResponse({"error": "feature_id must be an integer"}, status=400)
+
+    ftype = request.GET.get("type")
+    start = request.GET.get("start")
+    end = request.GET.get("end")
+    variables = request.GET.get("variables") or "flow,velocity,depth,nudge"
+    limit = int(request.GET.get("limit", "5000"))
+
+    allowed_vars = {"flow", "velocity", "depth", "nudge"}
+    var_list = [v.strip() for v in variables.split(",") if v.strip()]
+    var_list = [v for v in var_list if v in allowed_vars]
+    if not var_list:
+        var_list = ["flow"]
+
+    where = [f"feature_id = {fid}"]
+    if ftype:
+        safe_type = ftype.replace("'", "''")
+        where.append(f"type = '{safe_type}'")
+    if start:
+        safe_start = start.replace("'", "''")
+        where.append(f"time >= TIMESTAMP '{safe_start}'")
+    if end:
+        safe_end = end.replace("'", "''")
+        where.append(f"time <= TIMESTAMP '{safe_end}'")
+
+    cols_sql = ", ".join(["time"] + var_list)
+    where_sql = " AND ".join(where)
+
+    query = f"""
+        SELECT {cols_sql}
+        FROM output
+        WHERE {where_sql}
+        ORDER BY time
+        LIMIT {limit}
+    """
+
+    try:
+        df = _duckdb_query_parquet(file_url, query)
+
+        # Format time column
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(df["time"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        return JsonResponse(
+            {
+                "file": file_url,
+                "feature_id": fid,
+                "type": ftype,
+                "variables": var_list,
+                "start": start,
+                "end": end,
+                "limit": limit,
+                "query": query.strip(),
+                "columns": list(df.columns),
+                "rows": int(len(df)),
+                "data": df.to_dict(orient="records"),
+            },
+            safe=True,
+        )
+    except FileNotFoundError:
+        return JsonResponse({"file": file_url, "query": query.strip(), "columns": [], "rows": 0, "data": []}, status=404)
+    except Exception as e:
+        return JsonResponse({"file": file_url, "query": query.strip(), "error": str(e)}, status=500)
 
 @api_view(["GET"])
 def get_status_dir(request):
