@@ -1,0 +1,63 @@
+from datetime import datetime
+
+def _normalize_date_yyyymmdd(date_str: str | None) -> str | None:
+    """Normalize a date string to YYYYMMDD.
+
+    Accepts:
+      - YYYYMMDD
+      - YYYY-MM-DD
+      - YYYY/MM/DD
+    """
+    if not date_str:
+        return None
+
+    s = str(date_str).strip()
+    if len(s) == 8 and s.isdigit():
+        return s
+
+    s = s.replace("/", "-")
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").strftime("%Y%m%d")
+    except ValueError:
+        return None
+
+
+def _normalize_date_folder(date_str: str | None, *, default_prefix: str = "ngen") -> str | None:
+    """Normalize a date folder name for the S3 layout.
+
+    The datastream commonly uses folders like: ngen.YYYYMMDD
+
+    Accepts:
+      - ngen.YYYYMMDD
+      - ngen.YYYY-MM-DD
+      - ngen.YYYY/MM/DD
+      - YYYYMMDD / YYYY-MM-DD / YYYY/MM/DD (prefix added)
+    """
+    if not date_str:
+        return None
+
+    s = str(date_str).strip()
+    if "." in s:
+        prefix, tail = s.split(".", 1)
+        yyyymmdd = _normalize_date_yyyymmdd(tail)
+        return f"{prefix}.{yyyymmdd}" if yyyymmdd else None
+
+    yyyymmdd = _normalize_date_yyyymmdd(s)
+    return f"{default_prefix}.{yyyymmdd}" if yyyymmdd else None
+
+
+def _extract_yyyymmdd_from_date_folder(folder: str) -> str | None:
+    """Extract YYYYMMDD from a folder like 'ngen.20260127'."""
+    if not folder:
+        return None
+    base = folder.strip().rstrip("/")
+    if "." in base:
+        _, tail = base.split(".", 1)
+        return _normalize_date_yyyymmdd(tail)
+    return _normalize_date_yyyymmdd(base)
+
+
+def _label_from_id(value: str) -> str:
+    """Default label: replace underscores with spaces."""
+    return value.replace("_", " ")
+

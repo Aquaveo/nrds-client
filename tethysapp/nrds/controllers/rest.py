@@ -1,111 +1,66 @@
 import fsspec
+import os
 import pandas as pd
+from datetime import datetime
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from tethys_sdk.routing import controller
 from ..data_utils import get_troute_df
-from datetime import datetime
+from .validators import OutputsFilesQuery
+from pydantic import ValidationError
+from .utils_rest import (
+    _extract_yyyymmdd_from_date_folder,
+    _label_from_id,
+    _normalize_date_folder,
+)
 
-BUCKET = "ciroh-community-ngen-datastream"
+BUCKET = os.getenv("BUCKET","ciroh-community-ngen-datastream")
 OUTPUTS_DIR = "outputs"
 PREFIX_HYDROFABRIC = "v2.2_hydrofabric"
 NGEN_RUN_PREFIX = "ngen-run/outputs/troute"
 
-
-def _normalize_date_yyyymmdd(date_str: str | None) -> str | None:
-    """Normalize a date string to YYYYMMDD.
-
-    Accepts:
-      - YYYYMMDD
-      - YYYY-MM-DD
-      - YYYY/MM/DD
-    """
-    if not date_str:
-        return None
-
-    s = str(date_str).strip()
-    if len(s) == 8 and s.isdigit():
-        return s
-
-    s = s.replace("/", "-")
-    try:
-        return datetime.strptime(s, "%Y-%m-%d").strftime("%Y%m%d")
-    except ValueError:
-        return None
-
-
-def _normalize_date_folder(date_str: str | None, *, default_prefix: str = "ngen") -> str | None:
-    """Normalize a date folder name for the S3 layout.
-
-    The datastream commonly uses folders like: ngen.YYYYMMDD
-
-    Accepts:
-      - ngen.YYYYMMDD
-      - ngen.YYYY-MM-DD
-      - ngen.YYYY/MM/DD
-      - YYYYMMDD / YYYY-MM-DD / YYYY/MM/DD (prefix added)
-    """
-    if not date_str:
-        return None
-
-    s = str(date_str).strip()
-    if "." in s:
-        prefix, tail = s.split(".", 1)
-        yyyymmdd = _normalize_date_yyyymmdd(tail)
-        return f"{prefix}.{yyyymmdd}" if yyyymmdd else None
-
-    yyyymmdd = _normalize_date_yyyymmdd(s)
-    return f"{default_prefix}.{yyyymmdd}" if yyyymmdd else None
-
-
-def _extract_yyyymmdd_from_date_folder(folder: str) -> str | None:
-    """Extract YYYYMMDD from a folder like 'ngen.20260127'."""
-    if not folder:
-        return None
-    base = folder.strip().rstrip("/")
-    if "." in base:
-        _, tail = base.split(".", 1)
-        return _normalize_date_yyyymmdd(tail)
-    return _normalize_date_yyyymmdd(base)
-
-
-def _label_from_id(value: str) -> str:
-    """Default label: replace underscores with spaces."""
-    return value.replace("_", " ")
-
-
-# -----------------------------------------------------------------------------
-# Outputs files (unchanged; expects IDs for forecast + vpu)
-# -----------------------------------------------------------------------------
 @controller(url="api/list-available-outputs-files", login_required=False)
 @api_view(["GET"])
-def list_available_outputs_files(request):
+def list_available_outputs_files(request) -> JsonResponse:
     """List Outputs for a given model, date, forecast, cycle, and vpu."""
-    model = request.GET.get("model")
-    date = _normalize_date_folder(request.GET.get("date"))
-    forecast = request.GET.get("forecast")
-    cycle = request.GET.get("cycle")
-    vpu = request.GET.get("vpu")
+    # Convert QueryDict -> plain dict (single values)
+    data = {k: request.GET.get(k) for k in request.GET.keys()}
 
-    s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}/{date}/{forecast}/{cycle}"
+    try:
+        q = OutputsFilesQuery.model_validate(data)
+    except ValidationError as e:
+        # structured pydantic errors (great for agent auto-repair)
+        return JsonResponse({"errors": e.errors()}, status=400)
+    except ValueError as e:
+        # model_validator can raise plain ValueError
+        return JsonResponse({"errors": [{"msg": str(e)}]}, status=400)
+
+    model = q.model
+    date_folder = _normalize_date_folder(q.date)  # uses normalized YYYY-MM-DD
+    forecast = q.forecast
+    cycle = q.cycle
+    vpu = q.vpu
+
+    s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}/{date_folder}/{forecast}/{cycle}"
     if forecast == "medium_range":
-        s3_url += f"/1/{vpu}/{NGEN_RUN_PREFIX}"
+        s3_url += f"/{q.ensemble}/{vpu}/{NGEN_RUN_PREFIX}"
     else:
         s3_url += f"/{vpu}/{NGEN_RUN_PREFIX}"
 
-    fs = fsspec.filesystem("s3", anon=True)
-    outputs = fs.ls(s3_url, detail=False)
-    files = [f.split("/")[-1] for f in outputs]
+    try:
+        print(f"🔍 Listing files at {s3_url} ...")
+        fs = fsspec.filesystem("s3", anon=True)
+        outputs = fs.ls(s3_url, detail=False)
+        files = [f.split("/")[-1] for f in outputs]
+        return JsonResponse({"path": s3_url, "files": files}, safe=False)
 
-    return JsonResponse({"path": s3_url, "files": files}, safe=False)
+    except FileNotFoundError:
+        # valid request, just no outputs at that path
+        return JsonResponse({"path": s3_url, "files": []}, safe=False)
 
-
-# -----------------------------------------------------------------------------
-# VPUs: return both id + label
-# -----------------------------------------------------------------------------
 @controller(url="api/list-available-vpus", login_required=False)
 @api_view(["GET"])
-def list_available_vpus(request):
+def list_available_vpus(request) -> JsonResponse:
     """List VPUs for a given model, date, forecast, and cycle."""
     model = request.GET.get("model")
     date = _normalize_date_folder(request.GET.get("date"))
@@ -115,160 +70,158 @@ def list_available_vpus(request):
     s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}/{date}/{forecast}/{cycle}"
     if forecast == "medium_range":
         s3_url += "/1"
+    try:
+        fs = fsspec.filesystem("s3", anon=True)
+        dirs = fs.ls(s3_url, detail=False)
+        vpu_ids = [d.split("/")[-1] for d in dirs]
+        vpu_labels = [_label_from_id(v) for v in vpu_ids]
+        vpus = [{"id": vid, "label": lbl} for vid, lbl in zip(vpu_ids, vpu_labels)]
 
-    fs = fsspec.filesystem("s3", anon=True)
-    dirs = fs.ls(s3_url, detail=False)
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "vpus": vpus,
+            },
+            safe=False,
+        )
+    except FileNotFoundError:
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "vpus": [],
+            },
+            safe=False,
+        )
 
-    vpu_ids = [d.split("/")[-1] for d in dirs]  # e.g. VPU_14, VPU_03N
-    vpu_labels = [_label_from_id(v) for v in vpu_ids]  # e.g. VPU 14
-
-    vpus = [{"id": vid, "label": lbl} for vid, lbl in zip(vpu_ids, vpu_labels)]
-
-    return JsonResponse(
-        {
-            "path": s3_url,
-            # new
-            "vpus": vpus,
-            "vpu_ids": vpu_ids,
-            "vpu_labels": vpu_labels,
-            # backward-compat (old behavior)
-            "vpus_legacy": vpu_labels,
-        },
-        safe=False,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Cycles (already stable IDs)
-# -----------------------------------------------------------------------------
 @controller(url="api/list-available-cycles", login_required=False)
 @api_view(["GET"])
-def list_available_cycles(request):
+def list_available_cycles(request) -> JsonResponse:
     """List available cycles for a given model, date, and forecast"""
     model = request.GET.get("model")
     date = _normalize_date_folder(request.GET.get("date"))
     forecast = request.GET.get("forecast")
-
     s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}/{date}/{forecast}/"
-    fs = fsspec.filesystem("s3", anon=True)
-    dirs = fs.ls(s3_url, detail=False)
 
-    cycle_ids = [d.split("/")[-1] for d in dirs]  # e.g. 00, 06, 12, 18
-    cycles = [{"id": c, "label": c} for c in cycle_ids]
+    try:
+        fs = fsspec.filesystem("s3", anon=True)
+        dirs = fs.ls(s3_url, detail=False)
 
-    return JsonResponse(
-        {
-            "path": s3_url,
-            # new
-            "cycles": cycles,
-            "cycle_ids": cycle_ids,
-            "cycle_labels": cycle_ids,
-            # backward-compat
-            "cycles_legacy": cycle_ids,
-        },
-        safe=False,
-    )
+        cycle_ids = [d.split("/")[-1] for d in dirs]
+        cycles = [{"id": c, "label": c} for c in cycle_ids]
+
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "cycles": cycles,
+            },
+            safe=False,
+        )
+    except FileNotFoundError:
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "cycles": [],
+            },
+            safe=False,
+        )
 
 
-# -----------------------------------------------------------------------------
-# Forecasts: return both id + label
-# -----------------------------------------------------------------------------
 @controller(url="api/list-available-forecasts", login_required=False)
 @api_view(["GET"])
-def list_available_forecasts(request):
+def list_available_forecasts(request) -> JsonResponse:
     """List available forecasts for a given model, date"""
     model = request.GET.get("model")
     date = _normalize_date_folder(request.GET.get("date"))
-
     s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}/{date}/"
-    fs = fsspec.filesystem("s3", anon=True)
-    dirs = fs.ls(s3_url, detail=False)
+    try:
+        fs = fsspec.filesystem("s3", anon=True)
+        dirs = fs.ls(s3_url, detail=False)
 
-    forecast_ids = [d.split("/")[-1] for d in dirs]         # e.g. short_range, medium_range
-    forecast_labels = [_label_from_id(f) for f in forecast_ids]  # e.g. short range
+        forecast_ids = [d.split("/")[-1] for d in dirs]
+        forecast_labels = [_label_from_id(f) for f in forecast_ids]
 
-    forecasts = [{"id": fid, "label": lbl} for fid, lbl in zip(forecast_ids, forecast_labels)]
+        forecasts = [{"id": fid, "label": lbl} for fid, lbl in zip(forecast_ids, forecast_labels)]
 
-    return JsonResponse(
-        {
-            "path": s3_url,
-            # new
-            "forecasts": forecasts,
-            "forecast_ids": forecast_ids,
-            "forecast_labels": forecast_labels,
-            # backward-compat (old behavior)
-            "forecasts_legacy": forecast_labels,
-        },
-        safe=False,
-    )
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "forecasts": forecasts,
+            },
+            safe=False,
+        )
+    except FileNotFoundError:
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "forecasts": [],
+            },
+            safe=False,
+        )
 
-
-# -----------------------------------------------------------------------------
-# Dates: return both id (folder name) + label (ISO date)
-# -----------------------------------------------------------------------------
 @controller(url="api/list-available-dates", login_required=False)
 @api_view(["GET"])
-def list_avaiable_dates(request):
+def list_avaiable_dates(request) -> JsonResponse:
     """List available dates for a given model"""
     model = request.GET.get("model")
-
     s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}"
-    fs = fsspec.filesystem("s3", anon=True)
-    dirs = fs.ls(s3_url, detail=False)
+    try:
+        fs = fsspec.filesystem("s3", anon=True)
+        dirs = fs.ls(s3_url, detail=False)
 
-    date_ids = [d.split("/")[-1].rstrip("/") for d in dirs]  # e.g. ngen.20260218
+        date_ids = [d.split("/")[-1].rstrip("/") for d in dirs]  # e.g. ngen.20260218
+        labels = []
+        for folder in date_ids:
+            yyyymmdd = _extract_yyyymmdd_from_date_folder(folder)
+            if yyyymmdd:
+                labels.append(datetime.strptime(yyyymmdd, "%Y%m%d").date().isoformat())
+            else:
+                labels.append(folder)
 
-    # Labels as ISO dates, where possible
-    labels = []
-    for folder in date_ids:
-        yyyymmdd = _extract_yyyymmdd_from_date_folder(folder)
-        if yyyymmdd:
-            labels.append(datetime.strptime(yyyymmdd, "%Y%m%d").date().isoformat())
-        else:
-            labels.append(folder)
+        dates = [{"id": did, "label": lbl} for did, lbl in zip(date_ids, labels)]
 
-    dates = [{"id": did, "label": lbl} for did, lbl in zip(date_ids, labels)]
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "dates": dates,
+            },
+            safe=False,
+        )
+    except FileNotFoundError:
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "dates": [],
+            },
+            safe=False,
+        )
 
-    return JsonResponse(
-        {
-            "path": s3_url,
-            # new
-            "dates": dates,
-            "date_ids": date_ids,
-            "date_labels": labels,
-            # backward-compat (old behavior)
-            "dates_legacy": labels,
-        },
-        safe=False,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Models: return both id + label (same for now)
-# -----------------------------------------------------------------------------
 @controller(url="api/list-available-models", login_required=False)
 @api_view(["GET"])
-def list_available_models(request):
+def list_available_models(_):
     """List available models"""
     s3_url = f"s3://{BUCKET}/{OUTPUTS_DIR}"
-    fs = fsspec.filesystem("s3", anon=True)
-    dirs = fs.ls(s3_url, detail=False)
+    try:
+        fs = fsspec.filesystem("s3", anon=True)
+        dirs = fs.ls(s3_url, detail=False)
 
-    model_ids = [d.split("/")[-1] for d in dirs]
-    models = [{"id": mid, "label": mid} for mid in model_ids]
+        model_ids = [d.split("/")[-1] for d in dirs]
+        models = [{"id": mid, "label": mid} for mid in model_ids]
 
-    return JsonResponse(
-        {
-            "path": s3_url,
-            "models": models,
-            "model_ids": model_ids,
-            "model_labels": model_ids,
-            # backward-compat
-            "models_legacy": model_ids,
-        },
-        safe=False,
-    )
-
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "models": models,
+            },
+            safe=False,
+        )
+    except FileNotFoundError:
+        return JsonResponse(
+            {
+                "path": s3_url,
+                "models": [],
+            },
+            safe=False,
+        )
 
 @controller(url="api/read-output-file", login_required=False)
 @api_view(["GET"])

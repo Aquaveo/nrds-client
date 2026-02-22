@@ -1,141 +1,14 @@
-import os
-from typing import Any, Dict, List, Optional, Union
-from urllib.parse import urlencode
 
-import requests
+from typing import Optional, Dict, Any
+from typing_extensions import Annotated
+from pydantic import Field
 from fastmcp import FastMCP
 
-# Create the MCP server instance
+from .utils import _get_json_raw, _prefer_id_objects, _as_id, REST_API_HOST, _parse_iso_date, DEFAULT_TZ, DEFAULT_START, DATE_PATTERN, _date_from_item
+from .validations import ForecastId, VpuId, ModelId, MEDIUM_RANGE_CYCLES, SHORT_RANGE_CYCLES, ANALYSIS_ASSIM_EXTEND_CYCLES
+from datetime import datetime
+
 mcp = FastMCP("NRDS MCP Server")
-
-# Base URL of your Tethys app REST API
-REST_API_HOST = os.getenv("NRDS_API_HOST", "http://localhost:8001/apps/nrds/api").rstrip("/")
-
-# Optional token auth
-NRDS_API_TOKEN = os.getenv("NRDS_API_TOKEN", "be5f936afa81436a43a116546f8c8f1ad2a86079")
-
-# Map tool -> endpoint path
-ENDPOINTS = {
-    "list_available_models": "list-available-models",
-    "list_available_dates": "list-available-dates",
-    "list_available_forecasts": "list-available-forecasts",
-    "list_available_cycles": "list-available-cycles",
-    "list_available_vpus": "list-available-vpus",
-    "list_available_outputs_files": "list-available-outputs-files",
-}
-
-
-# -----------------------------------------------------------------------------
-# HTTP helpers
-# -----------------------------------------------------------------------------
-def _headers() -> Dict[str, str]:
-    h = {"Accept": "application/json"}
-    if NRDS_API_TOKEN:
-        h["Authorization"] = f"Token {NRDS_API_TOKEN}"
-    return h
-def _as_model_id(value: str) -> str:
-    return str(value).strip()
-
-
-def _is_html_response(resp: requests.Response) -> bool:
-    ctype = (resp.headers.get("Content-Type") or "").lower()
-    if "text/html" in ctype:
-        return True
-    # some servers mislabel html; quick heuristic
-    text = (resp.text or "").lstrip()
-    return text.startswith("<!DOCTYPE html") or text.startswith("<html")
-
-
-def _get_json_raw(endpoint_key: str, params: Optional[Dict[str, Any]] = None, timeout: int = 20) -> Dict[str, Any]:
-    ep = ENDPOINTS[endpoint_key].lstrip("/")
-    base_url = f"{REST_API_HOST}/{ep}"
-    urls_to_try = [base_url, base_url + "/"]
-
-    last_err: Optional[str] = None
-    for url in urls_to_try:
-        try:
-            resp = requests.get(url, params=params or {}, headers=_headers(), timeout=timeout)
-            if resp.status_code == 404:
-                last_err = f"404 at {url}"
-                continue
-            resp.raise_for_status()
-
-            if _is_html_response(resp):
-                snippet = (resp.text or "")[:300]
-                raise RuntimeError(f"Expected JSON but got HTML from {url}. Snippet: {snippet}")
-
-            payload = resp.json()
-            if not isinstance(payload, dict):
-                # Your API should return dicts; keep it consistent
-                return {"data": payload}
-            return payload
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-
-    q = f"?{urlencode(params or {})}" if params else ""
-    raise RuntimeError(f"NRDS API request failed for '{endpoint_key}' ({base_url}{q}). Last error: {last_err}")
-
-
-# -----------------------------------------------------------------------------
-# ID/Label normalization helpers
-# -----------------------------------------------------------------------------
-def _as_id(value: str) -> str:
-    """
-    Convert labels to ids for known patterns:
-      - forecasts: "short range" -> "short_range"
-      - vpu: "VPU 14" -> "VPU_14"
-    If already an id, returns unchanged.
-    """
-    if value is None:
-        return value
-    s = str(value).strip()
-    # Only do minimal safe normalization: spaces -> underscores
-    return s.replace(" ", "_")
-
-
-def _prefer_id_objects(payload: Dict[str, Any], key: str) -> Dict[str, Any]:
-    """
-    Ensure the payload always includes a list of {id,label} objects under `key`,
-    plus *_ids and *_labels arrays for convenience, even if API returns legacy.
-    """
-    items = payload.get(key)
-
-    # If already [{id,label}, ...]
-    if isinstance(items, list) and items and isinstance(items[0], dict) and "id" in items[0]:
-        ids = [x.get("id") for x in items]
-        labels = [x.get("label", x.get("id")) for x in items]
-        payload[f"{key[:-1]}_ids" if key.endswith("s") else f"{key}_ids"] = ids
-        payload[f"{key[:-1]}_labels" if key.endswith("s") else f"{key}_labels"] = labels
-        return payload
-
-    # If API provided *_ids/_labels instead
-    ids_key = f"{key[:-1]}_ids" if key.endswith("s") else f"{key}_ids"
-    labels_key = f"{key[:-1]}_labels" if key.endswith("s") else f"{key}_labels"
-
-    ids = payload.get(ids_key)
-    labels = payload.get(labels_key)
-
-    if isinstance(ids, list):
-        if not isinstance(labels, list) or len(labels) != len(ids):
-            labels = ids
-        payload[key] = [{"id": i, "label": l} for i, l in zip(ids, labels)]
-        return payload
-
-    # Legacy list of strings -> treat as labels, derive ids
-    if isinstance(items, list) and (not items or isinstance(items[0], str)):
-        labels = items
-        ids = [_as_id(x) for x in labels]
-        payload[key] = [{"id": i, "label": l} for i, l in zip(ids, labels)]
-        payload[ids_key] = ids
-        payload[labels_key] = labels
-        return payload
-
-    return payload
-
-
-# -----------------------------------------------------------------------------
-# MCP tools
-# -----------------------------------------------------------------------------
 
 @mcp.tool(name="healthcheck", description="Check connectivity to the NRDS REST API host.")
 def healthcheck() -> Dict[str, Any]:
@@ -152,56 +25,105 @@ def healthcheck() -> Dict[str, Any]:
         "sample_models": sample_models,
     }
 
-@mcp.tool(name="list_available_models", description="List available NRDS models (returns id + label).")
+@mcp.tool(name="list_available_models", description="List available NRDS models")
 def list_available_models_tool() -> Dict[str, Any]:
     raw = _get_json_raw("list_available_models")
-    # Ensure standard format
     raw = _prefer_id_objects(raw, "models")
     return raw
+
 @mcp.tool(
     name="list_available_dates",
     description=(
         "List available dates for a given model (returns id + label). "
-        "Use offset/limit to request a subset (e.g., limit=3 for first 3)."
+        "Supports date-range filtering with start/end (ISO YYYY-MM-DD or YYYY/MM/DD). "
+        "Defaults: start=2025-08-01, end=today (America/Denver). "
+        "Pagination is applied after filtering using offset/limit."
     ),
 )
 def list_available_dates_tool(
-    model: str,
-    offset: int = 0,
-    limit: int = 0,  # 0 means 'no limit'
-    # optional aliases to tolerate LLM mistakes:
-    start: Optional[int] = None,
-    end: Optional[int] = None,
+    model: Annotated[ModelId, Field(description="Model id")],
+    offset: Annotated[int, Field(ge=0, description="Number of items to skip for pagination (default 0)")] = 0,
+    limit: Annotated[int, Field(ge=0, description="Maximum number of items to return (default 0 for all)")] = 0,
+    start: Annotated[
+        str,
+        Field(
+            default=DEFAULT_START,
+            pattern=DATE_PATTERN,
+            description="Start date (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD. Default 2025-08-01.",
+        ),
+    ] = DEFAULT_START,
+    end: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            pattern=DATE_PATTERN,
+            description="End date (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD. Default is today's date (America/Denver).",
+        ),
+    ] = None,
 ) -> Dict[str, Any]:
-    # If the model uses start/end, translate them.
-    if start is not None and offset == 0:
-        offset = int(start)
+    # Resolve defaults and validate range
+    start_date = _parse_iso_date(start)
+    end_date = _parse_iso_date(end) if end is not None else datetime.now(DEFAULT_TZ).date()
 
-    if end is not None and limit == 0:
-        # interpret end as an exclusive index
-        limit = max(0, int(end) - offset)
+    if start_date > end_date:
+        raise ValueError(f"'start' must be <= 'end' (got start={start_date}, end={end_date})")
 
     raw = _get_json_raw("list_available_dates", params={"model": model})
     raw = _prefer_id_objects(raw, "dates")
 
     dates = raw.get("dates") or []
     if isinstance(dates, list) and dates and isinstance(dates[0], dict):
+        # Filter by date range (inclusive)
+        filtered: list[dict] = []
+        for item in dates:
+            di = _date_from_item(item)
+            if di is None:
+                continue
+            if start_date <= di <= end_date:
+                filtered.append(item)
+
+        # Apply pagination after filtering
         if offset or (limit and limit > 0):
-            raw["dates"] = dates[offset : (offset + limit) if limit else None]
+            raw["dates"] = filtered[offset : (offset + limit) if limit else None]
+        else:
+            raw["dates"] = filtered
 
     return raw
 
 
-@mcp.tool(name="list_available_forecasts", description="List available forecasts for a given model and date (returns id + label).")
-def list_available_forecasts_tool(model: str, date: str) -> Dict[str, Any]:
-    # Your API normalizes date input; pass it through
+@mcp.tool(
+        name="list_available_forecasts", 
+        description="List available forecasts for a given model and date"
+        )
+def list_available_forecasts_tool(
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+) -> Dict[str, Any]:
     raw = _get_json_raw("list_available_forecasts", params={"model": model, "date": date})
     raw = _prefer_id_objects(raw, "forecasts")
     return raw
 
-
-@mcp.tool(name="list_available_cycles", description="List available cycles for a given model, date, and forecast (accepts id or label).")
-def list_available_cycles_tool(model: str, date: str, forecast: str) -> Dict[str, Any]:
+@mcp.tool(
+        name="list_available_cycles", 
+        description="List available cycles for a given model, date, and forecast"
+        )
+def list_available_cycles_tool(
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+    forecast: Annotated[ForecastId, Field(description="Forecast id", pattern=r"^(short_range|medium_range|analysis_assim_extend)$")],
+) -> Dict[str, Any]:
     forecast_id = _as_id(forecast)
     raw = _get_json_raw(
         "list_available_cycles",
@@ -212,8 +134,24 @@ def list_available_cycles_tool(model: str, date: str, forecast: str) -> Dict[str
     return raw
 
 
-@mcp.tool(name="list_available_vpus", description="List available VPUs for a given model, date, forecast, and cycle (returns id + label).")
-def list_available_vpus_tool(model: str, date: str, forecast: str, cycle: str) -> Dict[str, Any]:
+@mcp.tool(name="list_available_vpus", 
+          description="List available VPUs for a given model, date, forecast, and cycle"
+          )
+def list_available_vpus_tool(
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+    forecast: Annotated[ForecastId, Field(description="Forecast id", pattern=r"^(short_range|medium_range|analysis_assim_extend)$")],
+    cycle: Annotated[str, Field(description="Hourly cycle (00-23). short_range forecast (hourly, every hour), \
+                                medium_range forecast (4 times per day, every 6 hours, first member), \
+                                analysis_assim_extend forecast (once per day at 16z)",
+                                pattern=r"^(?:[01]\d|2[0-3])$")],
+    ) -> Dict[str, Any]:
     forecast_id = _as_id(forecast)
     raw = _get_json_raw(
         "list_available_vpus",
@@ -224,16 +162,25 @@ def list_available_vpus_tool(model: str, date: str, forecast: str, cycle: str) -
 
 
 @mcp.tool(
-    name="list_available_outputs_files",
-    description="List available output files for a given model/date/forecast/cycle/vpu (accepts ids or labels).",
-)
+        name="list_available_outputs_files", 
+        description="List available output files for a given model, date, forecast, cycle, and VPU (accepts id or label). Optional ensemble member for applicable forecasts."
+        )
 def list_available_outputs_files_tool(
-    model: str,
-    date: str,
-    forecast: str,
-    cycle: str,
-    vpu: str,
-    ensemble: Optional[Union[int, str]] = None,
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+    forecast: Annotated[ForecastId, Field(description="Forecast id", pattern=r"^(short_range|medium_range|analysis_assim_extend)$")],
+    cycle: Annotated[str, Field(description="Hourly cycle (00-23). short_range forecast (hourly, every hour), \
+                                medium_range forecast (4 times per day, every 6 hours, first member), \
+                                analysis_assim_extend forecast (once per day at 16z)",
+                                pattern=r"^(?:[01]\d|2[0-3])$")],
+    vpu: Annotated[VpuId, Field(description="VPU id")],
+    ensemble: Annotated[Optional[str], Field(description="Optional ensemble member (1 or 16)", pattern=r"^(?:1|16)$")] = None,
 ) -> Dict[str, Any]:
     params: Dict[str, Any] = {
         "model": model,
@@ -243,10 +190,87 @@ def list_available_outputs_files_tool(
         "vpu": _as_id(vpu),
     }
     if ensemble is not None:
-        params["ensemble"] = ensemble
+        params["ensemble"] = int(ensemble)
 
     raw = _get_json_raw("list_available_outputs_files", params=params)
     return raw
+
+@mcp.tool(
+    name="list_available_outputs_files_short_range",
+    description="List available output files for short_range (hourly) forecast. cycle must be 00-23.",
+)
+def list_available_outputs_files_short_range_tool(
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+    cycle: Annotated[SHORT_RANGE_CYCLES, Field(description="Hourly cycle for short_range (00-23)")],
+    vpu: Annotated[VpuId, Field(description="VPU id")],
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {
+        "model": model,
+        "date": date,
+        "forecast": "short_range",
+        "cycle": cycle,
+        "vpu": _as_id(vpu),
+    }
+    return _get_json_raw("list_available_outputs_files", params=params)
+
+
+@mcp.tool(
+    name="list_available_outputs_files_medium_range",
+    description="List available output files for medium_range (6-hourly) forecast. cycle must be 00/06/12/18. Uses ensemble=1 (first member).",
+)
+def list_available_outputs_files_medium_range_tool(
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+    cycle: Annotated[MEDIUM_RANGE_CYCLES, Field(description="6-hourly cycle for medium_range (00/06/12/18)")],
+    vpu: Annotated[VpuId, Field(description="VPU id")],
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {
+        "model": model,
+        "date": date,
+        "forecast": "medium_range",
+        "cycle": cycle,
+        "vpu": _as_id(vpu),
+    }
+    return _get_json_raw("list_available_outputs_files", params=params)
+
+
+@mcp.tool(
+    name="list_available_outputs_files_analysis_assim_extend",
+    description="List available output files for analysis_assim_extend forecast. cycle is always 16.",
+)
+def list_available_outputs_files_analysis_assim_extend_tool(
+    model: Annotated[ModelId, Field(description="Model id")],
+    date: Annotated[
+        str,
+        Field(
+            description="YYYY-MM-DD or YYYY/MM/DD",
+            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+        ),
+    ],
+    cycle: Annotated[ANALYSIS_ASSIM_EXTEND_CYCLES, Field(description="Only valid cycle for analysis_assim_extend is 16")],
+    vpu: Annotated[VpuId, Field(description="VPU id")],
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {
+        "model": model,
+        "date": date,
+        "forecast": "analysis_assim_extend",
+        "cycle": cycle,
+        "vpu": _as_id(vpu),
+    }
+    return _get_json_raw("list_available_outputs_files", params=params)
 
 
 if __name__ == "__main__":
