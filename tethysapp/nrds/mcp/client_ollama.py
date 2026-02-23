@@ -2,7 +2,8 @@
 import asyncio
 import json
 import os
-from typing import Dict, Any, List
+import re
+from typing import Dict, Any, List, Optional
 
 import ollama
 from fastmcp import Client as MCPClient
@@ -24,9 +25,8 @@ DATA_SCHEMA = """(
 )"""
 
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:9000/sse")
-MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "5"))
+MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "1"))
 
-# Triggers SQL generation (parquet OR netcdf OR generic "sql/duckdb" requests)
 SQL_HINTS = (
     # parquet
     "parquet", "read_parquet",
@@ -39,6 +39,27 @@ SQL_HINTS = (
     # general
     "duckdb", "sql", "select ", "with ",
 )
+
+URL_RE = re.compile(r"(https?://\S+|s3://\S+)", re.IGNORECASE)
+
+
+def extract_file_url(text: str) -> Optional[str]:
+    m = URL_RE.search(text or "")
+    if not m:
+        return None
+    # strip common trailing punctuation
+    return m.group(1).rstrip(").,;]}>\"'")
+
+
+def file_kind(url: str) -> Optional[str]:
+    if not url:
+        return None
+    u = url.lower()
+    if u.endswith(".parquet"):
+        return "parquet"
+    if u.endswith(".nc") or u.endswith(".nc4") or u.endswith(".netcdf"):
+        return "netcdf"
+    return None
 
 
 def _last_user_text(messages) -> str:
@@ -210,17 +231,13 @@ SYSTEM_MSG = {
         "4) Never invent IDs/values for model/forecast/cycle/vpu. If not certain, call the corresponding list_* tool first.\n"
         "5) Convert relative dates (today/yesterday/tomorrow) into an absolute date string in YYYY-MM-DD before calling tools.\n"
         "6) For ordinal user intents (e.g., \"first cycle\", \"second cycle\", \"VPU 2\"), call the relevant list_* tool and choose by ordering or matching (e.g., VPU_02).\n"
-        "7) If the user provides a relative date (today/yesterday), you MUST convert to ISO and then confirm it exists by calling list_available_dates(model, start=..., end=...) (or call it and pick the latest/closest). Never guess a date.\n"
-        "8) If forecast is short_range,use list_available_outputs_files_short_range, if medium_range, use list_available_outputs_files_medium_range. If analysis_assim_extend, use list_available_outputs_files_analysis_assim_extend. Do not guess the cycle or ensemble; call the list tool and pick from results.\n\n"
+        "7) If the user provides a relative date (today/yesterday), you MUST convert to ISO and then confirm it exists by calling list_available_dates(model, start=..., end=...). Never guess a date.\n"
+        "8) If forecast is short_range,use list_available_outputs_files_short_range, if medium_range, use list_available_outputs_files_medium_range. If analysis_assim_extend, use list_available_outputs_files_analysis_assim_extend.\n\n"
         "Query tools (DuckDB):\n"
-        "- If the target file is .parquet: use the parquet query tools (e.g., query_output_parquet_file / query_output_parquet_timeseries).\n"
-        "- If the target file is .nc/.nc4 (NetCDF): use query_netcdf_output_file or query_netcdf_output_file_timeseries.\n"
-        "- Always pass the file URL(s) plus the SQL query.\n"
-        "- For NetCDF endpoints, SQL commonly queries FROM output (timeseries endpoint uses output).\n\n"
-        "Error handling:\n"
-        "9) If you get \"unexpected keyword argument\", remove that argument and retry with only schema keys.\n"
-        "10) If you get a schema validation error (pattern/enum/missing), fix the arguments and retry.\n"
-        "11) If you get an HTTP 500/backend error, stop guessing. Try removing optional args and verify the combination exists by calling list_* tools.\n\n"
+        "- For Parquet: use query_parquet_output_file (args: s3_url, query). Do NOT use s3_urls/type.\n"
+        "- For NetCDF: use query_netcdf_output_file (args: s3_url, query). Do NOT use s3_urls/type.\n"
+        "- For NetCDF timeseries: use query_netcdf_output_file_timeseries only if you truly have multiple URLs; otherwise use query_netcdf_output_file.\n"
+        "- SQL queries should read FROM output.\n\n"
         "Data schema for SQL generation:\n"
         f"{DATA_SCHEMA}\n"
     ),
@@ -252,7 +269,33 @@ async def main():
 
         messages.append({"role": "user", "content": user_msg})
 
-        # If this looks like a SQL (parquet OR netcdf) query request, generate SQL text (no tools) and pass it along.
+        # Minimal hint: detect the file URL and tell the model EXACTLY which tool+args to use.
+        file_url = extract_file_url(user_msg)
+        kind = file_kind(file_url or "")
+        if file_url and kind == "parquet":
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"Detected file URL: {file_url} (parquet). "
+                        "Use tool query_parquet_output_file with args: s3_url=<that url>, query=<SQL>. "
+                        "Do NOT use s3_urls or type."
+                    ),
+                }
+            )
+        elif file_url and kind == "netcdf":
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"Detected file URL: {file_url} (netcdf). "
+                        "Use tool query_netcdf_output_file with args: s3_url=<that url>, query=<SQL>. "
+                        "Do NOT use s3_urls or type."
+                    ),
+                }
+            )
+
+        # If this looks like a SQL query request, generate SQL text (no tools) and pass it along.
         if should_generate_sql(messages):
             try:
                 sql = generate_duckdb_sql(user_msg)
@@ -265,8 +308,8 @@ async def main():
                     {
                         "role": "user",
                         "content": (
-                            "Use this DuckDB SQL when calling the appropriate query tool (parquet OR netcdf). "
-                            "For parquet, the view name is `output`.\n"
+                            "Use this DuckDB SQL (read-only) when calling the query tool. "
+                            "SQL should read FROM output:\n"
                             f"{sql}"
                         ),
                     }
@@ -317,39 +360,20 @@ async def main():
 Previous tool call failed with:
 {last_err}
 
-Repair rules:
-- Use only the tool schema keys. Do NOT add unexpected arguments.
-- If the user said a relative date (e.g., "yesterday"), convert it to YYYY-MM-DD before calling tools.
-- If the user used ordinal terms (first/second cycle), call the appropriate list_* tool and select by ordering.
-- If the error mentions "unexpected keyword argument", remove that key and retry.
-- If the error is a schema validation error (missing/enum/pattern), correct the arguments.
-- If the error is a backend HTTP 500, do not guess random values. Verify via list_* tools; remove optional args unless explicitly needed.
-- If this is a parquet/netcdf DuckDB request, include a DuckDB SQL query against the `output` view.
+Fix rules:
+- Use only schema keys. DO NOT pass s3_urls or type unless the tool schema says so.
+- For Parquet query: tool=query_parquet_output_file, args=(s3_url, query).
+- For NetCDF query: tool=query_netcdf_output_file, args=(s3_url, query).
+- Reuse the exact file URL from the user's message if present.
+- SQL should read FROM output.
 
-Now: make the next step using real tool_calls (not plain text) to progress toward the original user intent.""",
+Now: return a real tool_call with correct args.""",
                         }
                     )
 
-                    # If SQL-related during repair, generate fresh SQL and include it.
-                    if should_generate_sql(messages, last_err=last_err):
-                        try:
-                            sql = generate_duckdb_sql(_last_user_text(messages))
-                        except Exception:
-                            sql = ""
-                        if sql:
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "Use this DuckDB SQL when calling the appropriate query tool (parquet OR netcdf):\n"
-                                        f"{sql}"
-                                    ),
-                                }
-                            )
-
                     try:
                         repair_resp = ollama.chat(
-                            model=OLLAMA_MODEL,  # tool-capable model
+                            model=OLLAMA_MODEL,
                             messages=messages,
                             think=False,
                             tools=tools,

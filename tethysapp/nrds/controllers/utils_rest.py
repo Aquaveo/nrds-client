@@ -22,12 +22,13 @@ def _duckdb_query_parquet(file_url: str, query: str) -> pd.DataFrame:
         except Exception:
             pass
 
-def _duckdb_query_netcdf(df: str, query: str) -> pd.DataFrame:
+def _duckdb_query_netcdf(df: pd.DataFrame , query: str) -> pd.DataFrame:
     """Execute an arbitrary DuckDB query against a netcdf file exposed as temp view `output`."""
     
     con = duckdb.connect(database=":memory:")
+    con.register('tmp_table_nc', df)
     try:
-        con.execute(f"CREATE OR REPLACE TEMP VIEW output AS SELECT * FROM {df})")
+        con.execute(f"CREATE OR REPLACE TEMP VIEW output AS SELECT * FROM tmp_table_nc")
         return con.sql(query).df()
     finally:
         try:

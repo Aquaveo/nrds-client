@@ -265,8 +265,9 @@ def query_netcdf_output_file(request) -> JsonResponse:
 
     try:
         initial_df = get_troute_df(file_url)
-        initial_df.name = "initial_df"
-        df = _duckdb_query_netcdf(initial_df.name, query)
+        print(f"Initial DataFrame loaded with {len(initial_df)} rows and columns: {initial_df.columns.tolist()}")
+        df = _duckdb_query_netcdf(initial_df, query)
+        print(f"Query returned {len(df)} rows and columns: {df.columns.tolist()}")
         # Make timestamps JSON-friendly
         if "time" in df.columns:
             df["time"] = pd.to_datetime(df["time"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")

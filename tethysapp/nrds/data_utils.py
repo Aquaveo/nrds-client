@@ -185,7 +185,7 @@ def get_troute_df(s3_nc_url: str) -> pd.DataFrame:
     nc_xarray = xr.open_dataset(
         s3_nc_url,
         engine="h5netcdf",
-        backend_kwargs={"storage_options": {"anon": True}},
+        # backend_kwargs={"storage_options": {"anon": True}},
     )
     nc_df = nc_xarray.to_dataframe()
     nc_df = nc_df.reset_index()
