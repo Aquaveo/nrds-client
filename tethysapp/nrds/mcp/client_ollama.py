@@ -13,7 +13,6 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 # SQL-only model (does NOT support tools); used only to generate SQL text.
 OLLAMA_SQL_MODEL = os.getenv("OLLAMA_SQL_MODEL", "duckdb-nsql")
 
-# Parquet + NetCDF (T-route) columns are treated the same for SQL generation
 DATA_SCHEMA = """(
   time TIMESTAMP_NS,
   feature_id BIGINT,
@@ -25,7 +24,7 @@ DATA_SCHEMA = """(
 )"""
 
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:9000/sse")
-MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "1"))
+MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "0"))
 
 SQL_HINTS = (
     # parquet
@@ -47,7 +46,6 @@ def extract_file_url(text: str) -> Optional[str]:
     m = URL_RE.search(text or "")
     if not m:
         return None
-    # strip common trailing punctuation
     return m.group(1).rstrip(").,;]}>\"'")
 
 
@@ -92,7 +90,10 @@ def generate_duckdb_sql(user_text: str) -> str:
                 "You write DuckDB SQL only. Do NOT call tools.\n"
                 "Assume a DuckDB temp view named `output` exists with schema:\n"
                 f"{DATA_SCHEMA}\n"
-                "Return ONLY a single SQL query (no prose, no JSON, no markdown)."
+                "Rules:\n"
+                "- Always query FROM output (never use read_parquet(...) or read_netcdf(...)).\n"
+                "- Return ONLY a single SQL query (no prose, no JSON, no markdown).\n"
+                "Example for feature ids: SELECT DISTINCT feature_id FROM output;\n"
             ),
         },
         {"role": "user", "content": user_text},
@@ -108,13 +109,9 @@ def mcp_client() -> MCPClient:
     return MCPClient(SSETransport(url=url))
 
 
-# Step 1: Discover available tools from MCP server
 async def load_mcp_tools():
-    """Connect to MCP server and get list of available tools"""
     async with mcp_client() as mcp:
         tools_list = await mcp.list_tools()
-
-        # Convert to format Ollama understands
         ollama_tools = []
         for tool in tools_list:
             ollama_tools.append(
@@ -130,9 +127,7 @@ async def load_mcp_tools():
         return ollama_tools
 
 
-# Step 2: Execute a tool when AI requests it
 async def execute_tool(tool_name: str, arguments: dict):
-    """Call a tool on the MCP server with given arguments"""
     try:
         async with mcp_client() as mcp:
             result = await mcp.call_tool(tool_name, arguments, raise_on_error=False)
@@ -151,7 +146,7 @@ async def execute_tool(tool_name: str, arguments: dict):
 def extract_inline_tool_calls(text: str) -> List[Dict[str, Any]]:
     """
     Fallback: some models return tool calls in plain text like:
-      {"name": "...", "parameters": {...}}
+      {"name": "...", "parameters": {...}} or {"name": "...", "args": {...}}
     Convert to Ollama-like tool_calls structure:
       [{"function":{"name": "...", "arguments": {...}}}]
     """
@@ -171,7 +166,7 @@ def extract_inline_tool_calls(text: str) -> List[Dict[str, Any]]:
             continue
 
         name = obj.get("name") or obj.get("tool") or obj.get("tool_name")
-        args = obj.get("parameters") or obj.get("arguments") or obj.get("params")
+        args = obj.get("parameters") or obj.get("arguments") or obj.get("params") or obj.get("args")
 
         if isinstance(name, str) and name and (isinstance(args, dict) or isinstance(args, str)):
             return [{"function": {"name": name, "arguments": args}}]
@@ -179,11 +174,61 @@ def extract_inline_tool_calls(text: str) -> List[Dict[str, Any]]:
     return []
 
 
+def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
+    """
+    Minimal normalization for common LLM mistakes:
+      - {"args": "[url, query]"} -> {"s3_url": url, "query": query}
+      - {"s3_urls": "[url]"} for single-file tools -> {"s3_url": url}
+      - drop unexpected "type" for single-file query tools
+    """
+    if not isinstance(args, dict):
+        return args
+
+    single_file_tools = {"query_parquet_output_file", "query_netcdf_output_file"}
+    if tool_name not in single_file_tools:
+        return args
+
+    # Drop common hallucinated keys
+    if "type" in args and "s3_url" in args:
+        args.pop("type", None)
+
+    # Handle {"args": ...}
+    if "args" in args and ("s3_url" not in args or "query" not in args):
+        a = args.get("args")
+        if isinstance(a, str):
+            try:
+                a = json.loads(a)
+            except Exception:
+                pass
+        if isinstance(a, dict):
+            # if it already has s3_url/query, use it
+            if "s3_url" in a or "query" in a:
+                merged = dict(args)
+                merged.pop("args", None)
+                merged.update(a)
+                args = merged
+        elif isinstance(a, list) and len(a) >= 2:
+            args = {"s3_url": a[0], "query": a[1]}
+
+    # Handle mistaken s3_urls for single-file tools
+    if "s3_url" not in args and "s3_urls" in args:
+        s = args.get("s3_urls")
+        url = None
+        if isinstance(s, str):
+            url = extract_file_url(s)
+        elif isinstance(s, list) and s:
+            url = str(s[0])
+        if url:
+            args["s3_url"] = url
+        args.pop("s3_urls", None)
+
+    # Drop "type" if still present (these tools don't accept it)
+    args.pop("type", None)
+
+    return args
+
+
 async def process_tool_calls(tool_calls, messages):
-    """
-    Execute tool calls, append tool results to messages.
-    Returns: (had_error: bool, last_error_text: str|None)
-    """
     had_error = False
     last_err = None
 
@@ -196,6 +241,9 @@ async def process_tool_calls(tool_calls, messages):
                 args = json.loads(args)
             except Exception:
                 args = {"_raw": args}
+
+        # ✅ minimal normalization to prevent args/s3_urls/type mistakes
+        args = _normalize_query_tool_args(tool_name, args)
 
         print(f"🔧 Tool requested: {tool_name}")
         print(f"📝 Arguments: {args}")
@@ -228,16 +276,12 @@ SYSTEM_MSG = {
         "1) Only call tools using tool_calls (never plain text).\n"
         "2) Use ONLY argument keys defined in the tool's JSON schema. Do NOT add extra keys.\n"
         "3) Include ALL required arguments from the tool schema.\n"
-        "4) Never invent IDs/values for model/forecast/cycle/vpu. If not certain, call the corresponding list_* tool first.\n"
-        "5) Convert relative dates (today/yesterday/tomorrow) into an absolute date string in YYYY-MM-DD before calling tools.\n"
-        "6) For ordinal user intents (e.g., \"first cycle\", \"second cycle\", \"VPU 2\"), call the relevant list_* tool and choose by ordering or matching (e.g., VPU_02).\n"
-        "7) If the user provides a relative date (today/yesterday), you MUST convert to ISO and then confirm it exists by calling list_available_dates(model, start=..., end=...). Never guess a date.\n"
-        "8) If forecast is short_range,use list_available_outputs_files_short_range, if medium_range, use list_available_outputs_files_medium_range. If analysis_assim_extend, use list_available_outputs_files_analysis_assim_extend.\n\n"
+        "4) Never invent IDs/values for model/forecast/cycle/vpu. If not certain, call the corresponding list_* tool first.\n\n"
         "Query tools (DuckDB):\n"
-        "- For Parquet: use query_parquet_output_file (args: s3_url, query). Do NOT use s3_urls/type.\n"
-        "- For NetCDF: use query_netcdf_output_file (args: s3_url, query). Do NOT use s3_urls/type.\n"
-        "- For NetCDF timeseries: use query_netcdf_output_file_timeseries only if you truly have multiple URLs; otherwise use query_netcdf_output_file.\n"
-        "- SQL queries should read FROM output.\n\n"
+        "- For Parquet: use query_parquet_output_file (args: s3_url, query). Do NOT use s3_urls/type/args.\n"
+        "- For NetCDF: use query_netcdf_output_file (args: s3_url, query). Do NOT use s3_urls/type/args.\n"
+        "- SQL queries MUST read FROM output. Never use read_parquet(...) or read_netcdf(...).\n"
+        "- Example for feature ids: SELECT DISTINCT feature_id FROM output;\n\n"
         "Data schema for SQL generation:\n"
         f"{DATA_SCHEMA}\n"
     ),
@@ -269,17 +313,20 @@ async def main():
 
         messages.append({"role": "user", "content": user_msg})
 
-        # Minimal hint: detect the file URL and tell the model EXACTLY which tool+args to use.
         file_url = extract_file_url(user_msg)
         kind = file_kind(file_url or "")
+
+        # Strong, explicit guidance to prevent wrong tool + wrong args
         if file_url and kind == "parquet":
             messages.append(
                 {
                     "role": "user",
                     "content": (
                         f"Detected file URL: {file_url} (parquet). "
-                        "Use tool query_parquet_output_file with args: s3_url=<that url>, query=<SQL>. "
-                        "Do NOT use s3_urls or type."
+                        "Call query_parquet_output_file with args exactly: "
+                        '{"s3_url": "<url>", "query": "<SQL>"} . '
+                        "Do NOT use s3_urls/type/args. SQL must query FROM output. "
+                        "For distinct feature ids: SELECT DISTINCT feature_id FROM output;"
                     ),
                 }
             )
@@ -289,14 +336,16 @@ async def main():
                     "role": "user",
                     "content": (
                         f"Detected file URL: {file_url} (netcdf). "
-                        "Use tool query_netcdf_output_file with args: s3_url=<that url>, query=<SQL>. "
-                        "Do NOT use s3_urls or type."
+                        "Call query_netcdf_output_file with args exactly: "
+                        '{"s3_url": "<url>", "query": "<SQL>"} . '
+                        "Do NOT use s3_urls/type/args. SQL must query FROM output. "
+                        "For distinct feature ids: SELECT DISTINCT feature_id FROM output;"
                     ),
                 }
             )
 
-        # If this looks like a SQL query request, generate SQL text (no tools) and pass it along.
-        if should_generate_sql(messages):
+        # Generate SQL if it looks like a SQL request OR if the user gave a data file URL
+        if should_generate_sql(messages) or (file_url and kind in {"parquet", "netcdf"}):
             try:
                 sql = generate_duckdb_sql(user_msg)
             except Exception as e:
@@ -308,8 +357,7 @@ async def main():
                     {
                         "role": "user",
                         "content": (
-                            "Use this DuckDB SQL (read-only) when calling the query tool. "
-                            "SQL should read FROM output:\n"
+                            "Use this DuckDB SQL (read-only). SQL must read FROM output:\n"
                             f"{sql}"
                         ),
                     }
@@ -318,7 +366,7 @@ async def main():
         while True:
             try:
                 response = ollama.chat(
-                    model=OLLAMA_MODEL,  # tool-capable model
+                    model=OLLAMA_MODEL,
                     messages=messages,
                     think=False,
                     tools=tools,
@@ -336,7 +384,6 @@ async def main():
                 tool_calls = extract_inline_tool_calls(msg.get("content", "")) or []
 
             if not tool_calls:
-                print("🤖 Assistant response (no tools requested):")
                 assistant_text = msg.get("content", "")
                 print(f"\n🤖 Assistant:\n{assistant_text}\n")
                 messages.append({"role": "assistant", "content": assistant_text})
@@ -361,11 +408,12 @@ Previous tool call failed with:
 {last_err}
 
 Fix rules:
-- Use only schema keys. DO NOT pass s3_urls or type unless the tool schema says so.
-- For Parquet query: tool=query_parquet_output_file, args=(s3_url, query).
-- For NetCDF query: tool=query_netcdf_output_file, args=(s3_url, query).
-- Reuse the exact file URL from the user's message if present.
-- SQL should read FROM output.
+- Use only schema keys.
+- For NetCDF: query_netcdf_output_file args=(s3_url, query).
+- For Parquet: query_parquet_output_file args=(s3_url, query).
+- Do NOT use s3_urls/type/args.
+- SQL MUST query FROM output (never read_parquet/read_netcdf).
+- For distinct feature ids: SELECT DISTINCT feature_id FROM output;
 
 Now: return a real tool_call with correct args.""",
                         }
