@@ -15,6 +15,7 @@ from .utils_rest import (
     _label_from_id,
     _normalize_date_folder,
     _duckdb_query_parquet,
+    _duckdb_query_netcdf
 )
 
 BUCKET = os.getenv("BUCKET","ciroh-community-ngen-datastream")
@@ -247,6 +248,125 @@ def read_parquet_output_file(request) -> JsonResponse:
     lit_df = df.values.tolist()
     columns = df.columns.tolist()
     return JsonResponse({"path": s3_url, "columns": columns, "data": lit_df}, safe=False)
+
+
+@controller(url="api/query-output-netcdf-file", login_required=False)
+@api_view(["GET"])
+def query_netcdf_output_file(request) -> JsonResponse:
+    """Run a query against a netcdf output file on S3. Query params depend on the desired query."""
+    # For simplicity, we'll just read the whole file and return it here, but this could be extended to support more specific queries if needed.
+    file_url = request.GET.get("s3_url")
+    query = request.GET.get("query")
+
+    if not file_url:
+        return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
+    if not query:
+        return JsonResponse({"error": "Missing required query param: query"}, status=400)
+
+    try:
+        initial_df = get_troute_df(file_url)
+        initial_df.name = "initial_df"
+        df = _duckdb_query_netcdf(initial_df.name, query)
+        # Make timestamps JSON-friendly
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(df["time"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        return JsonResponse(
+            {
+                "file": file_url,
+                "query": query,
+                "columns": list(df.columns),
+                "rows": int(len(df)),
+                "data": df.to_dict(orient="records"),
+            },
+            safe=True,
+        )
+    except FileNotFoundError:
+        return JsonResponse({"file": file_url, "query": query, "columns": [], "rows": 0, "data": []}, status=404)
+    except Exception as e:
+        return JsonResponse({"file": file_url, "query": query, "error": str(e)}, status=500)   
+
+
+@controller(url="api/query-output-netcdf-timeseries", login_required=False)
+@api_view(["GET"])
+def query_netcdf_output_timeseries(request) -> JsonResponse:
+    """Query a time series from a netcdf output file on S3."""
+    file_url = request.GET.get("s3_url")
+    feature_id = request.GET.get("feature_id")
+
+    if not file_url:
+        return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
+    if feature_id is None:
+        return JsonResponse({"error": "Missing required query param: feature_id"}, status=400)
+
+    try:
+        fid = int(feature_id)
+    except Exception:
+        return JsonResponse({"error": "feature_id must be an integer"}, status=400)
+
+    ftype = request.GET.get("type")
+    start = request.GET.get("start")
+    end = request.GET.get("end")
+    variables = request.GET.get("variables") or "flow,velocity,depth,nudge"
+    limit = int(request.GET.get("limit", "5000"))
+
+    allowed_vars = {"flow", "velocity", "depth", "nudge"}
+    var_list = [v.strip() for v in variables.split(",") if v.strip()]
+    var_list = [v for v in var_list if v in allowed_vars]
+    if not var_list:
+        var_list = ["flow"]
+
+    where = [f"feature_id = {fid}"]
+    if ftype:
+        safe_type = ftype.replace("'", "''")
+        where.append(f"type = '{safe_type}'")
+    if start:
+        safe_start = start.replace("'", "''")
+        where.append(f"time >= TIMESTAMP '{safe_start}'")
+    if end:
+        safe_end = end.replace("'", "''")
+        where.append(f"time <= TIMESTAMP '{safe_end}'")
+
+    cols_sql = ", ".join(["time"] + var_list)
+    where_sql = " AND ".join(where)
+
+    query = f"""
+        SELECT {cols_sql}
+        FROM output
+        WHERE {where_sql}
+        ORDER BY time
+        LIMIT {limit}
+    """
+
+    try:
+        initial_df = get_troute_df(file_url)
+        initial_df.name = "output"
+        df = _duckdb_query_netcdf(initial_df.name, query)
+
+        # Format time column
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(df["time"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        return JsonResponse(
+            {
+                "file": file_url,
+                "feature_id": fid,
+                "type": ftype,
+                "variables": var_list,
+                "start": start,
+                "end": end,
+                "limit": limit,
+                "query": query.strip(),
+                "columns": list(df.columns),
+                "rows": int(len(df)),
+                "data": df.to_dict(orient="records"),
+            },
+            safe=True,
+        )
+    except FileNotFoundError:
+        return JsonResponse({"file": file_url, "query": query.strip(), "columns": [], "rows": 0, "data": []}, status=404)
+    except Exception as e:
+        return JsonResponse({"file": file_url, "query": query.strip(), "error": str(e)}, status=500)
 
 @controller(url="api/query-output-parquet-file", login_required=False)
 @api_view(["GET"])

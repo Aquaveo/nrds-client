@@ -22,6 +22,19 @@ def _duckdb_query_parquet(file_url: str, query: str) -> pd.DataFrame:
         except Exception:
             pass
 
+def _duckdb_query_netcdf(df: str, query: str) -> pd.DataFrame:
+    """Execute an arbitrary DuckDB query against a netcdf file exposed as temp view `output`."""
+    
+    con = duckdb.connect(database=":memory:")
+    try:
+        con.execute(f"CREATE OR REPLACE TEMP VIEW output AS SELECT * FROM {df})")
+        return con.sql(query).df()
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
 def _normalize_date_yyyymmdd(date_str: str | None) -> str | None:
     """Normalize a date string to YYYYMMDD.
 

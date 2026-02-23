@@ -329,5 +329,50 @@ def query_parquet_output_file_timeseries_tool(
      }
     return _get_json_raw("query_parquet_output_file_timeseries", params=params)
 
+@mcp.tool(
+    name="query_netcdf_output_file",
+    description="Run a SQL query against a netcdf output file in S3 using DuckDB. Provide the S3 URL to the netcdf file and the SQL query (e.g. SELECT * FROM read_netcdf_output_file('s3://bucket/path/to/file.nc') LIMIT 10). Returns query results as list of dicts."
+)
+def query_netcdf_output_file_tool(
+    s3_url: Annotated[str, Field(description="Full S3 URL to the netcdf file (e.g. https://bucket/path/to/file.nc)", pattern=r"^https://.+\.nc$")],
+    query: Annotated[
+        str,
+        Field(
+            description="DuckDB SQL query (read-only). Must start with SELECT or WITH.",
+            pattern=r"(?is)^\s*(?:WITH\b.*?\bSELECT\b|SELECT\b).*$",
+        ),
+    ]
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {
+        "s3_url": s3_url,
+        "query": query,
+     }
+    return _get_json_raw("query_netcdf_output_file", params=params)
+
+@mcp.tool(
+    name="query_netcdf_output_file_timeseries",
+    description="Run a SQL query against multiple netcdf output files in S3 using DuckDB. Provide a list of S3 URLs to the netcdf files and the SQL query (e.g. SELECT * FROM read_netcdf_output_file('s3://bucket/path/to/files_*.nc') WHERE date >= '2025-08-01'). Returns query results as list of dicts."
+)
+def query_netcdf_output_file_timeseries_tool(
+    s3_urls: Annotated[str, Field(description="Comma-separated list of S3 URLs to the netcdf files (e.g. s3://bucket/path/to/files_*.nc)", pattern=r"^https://.+\.nc(,https://.+\.nc)*$")],
+    feature_id: Annotated[Optional[str], Field(description="Optional feature id to filter the query results (e.g. a specific basin or location id)", pattern=r"^\w+$")] = None,
+    type: Annotated[Optional[str], Field(description="Optional type to filter the query results (e.g. 'basin' or 'location')", pattern=r"^\w+$")] = None,
+    start: Annotated[Optional[str], Field(description="Optional start date to filter the query results (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD.", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
+    end: Annotated[Optional[str], Field(description="Optional end date to filter the query results (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD.", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
+    variables: Annotated[Optional[str], Field(description="Optional comma-separated list of variables/columns to include in the query results (e.g. 'streamflow,precipitation')", pattern=r"^\w+(,\w+)*$")] = None,
+    limit: Annotated[Optional[int], Field(description="Optional limit on the number of rows to return", ge=1)] = None,
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {
+        "s3_urls": s3_urls,
+        feature_id and "feature_id": feature_id,
+        type and "type": type,
+        start and "start": start,
+        end and "end": end,
+        variables and "variables": variables,
+        limit and "limit": limit,
+     }
+    return _get_json_raw("query_netcdf_output_file_timeseries", params=params)
+
+
 if __name__ == "__main__":
     mcp.run(transport="sse", port=9000)

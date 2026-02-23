@@ -12,7 +12,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 # SQL-only model (does NOT support tools); used only to generate SQL text.
 OLLAMA_SQL_MODEL = os.getenv("OLLAMA_SQL_MODEL", "duckdb-nsql")
 
-PARQUET_SCHEMA = """(
+# Parquet + NetCDF (T-route) columns are treated the same for SQL generation
+DATA_SCHEMA = """(
   time TIMESTAMP_NS,
   feature_id BIGINT,
   type VARCHAR,
@@ -25,10 +26,18 @@ PARQUET_SCHEMA = """(
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:9000/sse")
 MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "5"))
 
-PARQUET_HINTS = (
-    "parquet", "duckdb", "read_parquet", "sql",
-    "query-output-parquet", "query_output_parquet",
-    "query_parquet_output", "query-output-parquet-timeseries",
+# Triggers SQL generation (parquet OR netcdf OR generic "sql/duckdb" requests)
+SQL_HINTS = (
+    # parquet
+    "parquet", "read_parquet",
+    "query-output-parquet", "query_output_parquet", "query_parquet_output",
+    "query-output-parquet-timeseries", "query_output_parquet_timeseries",
+    # netcdf
+    "netcdf", ".nc", ".nc4", "read_netcdf",
+    "query-output-netcdf-file", "query-output-netcdf-timeseries",
+    "query_netcdf_output_file", "query_netcdf_output_file_timeseries",
+    # general
+    "duckdb", "sql", "select ", "with ",
 )
 
 
@@ -39,7 +48,7 @@ def _last_user_text(messages) -> str:
     return ""
 
 
-def should_use_parquet_model(messages, tool_calls=None, last_err=None) -> bool:
+def should_generate_sql(messages, tool_calls=None, last_err=None) -> bool:
     blob = " ".join(
         [
             _last_user_text(messages),
@@ -47,18 +56,7 @@ def should_use_parquet_model(messages, tool_calls=None, last_err=None) -> bool:
             str(last_err or ""),
         ]
     ).lower()
-    return any(h in blob for h in PARQUET_HINTS)
-
-
-def tool_calls_include_parquet(tool_calls) -> bool:
-    for tc in (tool_calls or []):
-        try:
-            name = tc["function"]["name"]
-        except Exception:
-            continue
-        if "parquet" in str(name).lower() or "duckdb" in str(name).lower():
-            return True
-    return False
+    return any(h in blob for h in SQL_HINTS)
 
 
 def generate_duckdb_sql(user_text: str) -> str:
@@ -72,7 +70,7 @@ def generate_duckdb_sql(user_text: str) -> str:
             "content": (
                 "You write DuckDB SQL only. Do NOT call tools.\n"
                 "Assume a DuckDB temp view named `output` exists with schema:\n"
-                f"{PARQUET_SCHEMA}\n"
+                f"{DATA_SCHEMA}\n"
                 "Return ONLY a single SQL query (no prose, no JSON, no markdown)."
             ),
         },
@@ -214,14 +212,17 @@ SYSTEM_MSG = {
         "6) For ordinal user intents (e.g., \"first cycle\", \"second cycle\", \"VPU 2\"), call the relevant list_* tool and choose by ordering or matching (e.g., VPU_02).\n"
         "7) If the user provides a relative date (today/yesterday), you MUST convert to ISO and then confirm it exists by calling list_available_dates(model, start=..., end=...) (or call it and pick the latest/closest). Never guess a date.\n"
         "8) If forecast is short_range,use list_available_outputs_files_short_range, if medium_range, use list_available_outputs_files_medium_range. If analysis_assim_extend, use list_available_outputs_files_analysis_assim_extend. Do not guess the cycle or ensemble; call the list tool and pick from results.\n\n"
+        "Query tools (DuckDB):\n"
+        "- If the target file is .parquet: use the parquet query tools (e.g., query_output_parquet_file / query_output_parquet_timeseries).\n"
+        "- If the target file is .nc/.nc4 (NetCDF): use query_netcdf_output_file or query_netcdf_output_file_timeseries.\n"
+        "- Always pass the file URL(s) plus the SQL query.\n"
+        "- For NetCDF endpoints, SQL commonly queries FROM output (timeseries endpoint uses output).\n\n"
         "Error handling:\n"
         "9) If you get \"unexpected keyword argument\", remove that argument and retry with only schema keys.\n"
         "10) If you get a schema validation error (pattern/enum/missing), fix the arguments and retry.\n"
-        "11) If you get an HTTP 500/backend error, stop guessing. Try removing optional args (e.g., ensemble) and verify the combination exists by calling list_* tools.\n"
-        "\nParquet context:\n"
-        "If querying a parquet output file with DuckDB, assume a temp view named `output` exists with schema:\n"
-        f"{PARQUET_SCHEMA}\n"
-        "If the user asks for a parquet query, request (or use) a DuckDB SQL query against `output`.\n"
+        "11) If you get an HTTP 500/backend error, stop guessing. Try removing optional args and verify the combination exists by calling list_* tools.\n\n"
+        "Data schema for SQL generation:\n"
+        f"{DATA_SCHEMA}\n"
     ),
 }
 
@@ -251,8 +252,8 @@ async def main():
 
         messages.append({"role": "user", "content": user_msg})
 
-        # If this looks like a parquet/duckdb query, generate SQL text (no tools) and pass it along.
-        if should_use_parquet_model(messages):
+        # If this looks like a SQL (parquet OR netcdf) query request, generate SQL text (no tools) and pass it along.
+        if should_generate_sql(messages):
             try:
                 sql = generate_duckdb_sql(user_msg)
             except Exception as e:
@@ -264,7 +265,8 @@ async def main():
                     {
                         "role": "user",
                         "content": (
-                            "Use this DuckDB SQL (view name is `output`) when calling the parquet query tool:\n"
+                            "Use this DuckDB SQL when calling the appropriate query tool (parquet OR netcdf). "
+                            "For parquet, the view name is `output`.\n"
                             f"{sql}"
                         ),
                     }
@@ -321,15 +323,15 @@ Repair rules:
 - If the user used ordinal terms (first/second cycle), call the appropriate list_* tool and select by ordering.
 - If the error mentions "unexpected keyword argument", remove that key and retry.
 - If the error is a schema validation error (missing/enum/pattern), correct the arguments.
-- If the error is a backend HTTP 500, do not guess random dates/values. First verify existence using list_* tools; remove optional args unless explicitly needed.
-- If this is a parquet/duckdb request, include a DuckDB SQL query against the `output` view.
+- If the error is a backend HTTP 500, do not guess random values. Verify via list_* tools; remove optional args unless explicitly needed.
+- If this is a parquet/netcdf DuckDB request, include a DuckDB SQL query against the `output` view.
 
 Now: make the next step using real tool_calls (not plain text) to progress toward the original user intent.""",
                         }
                     )
 
-                    # If parquet-related during repair, generate fresh SQL and include it.
-                    if should_use_parquet_model(messages, last_err=last_err):
+                    # If SQL-related during repair, generate fresh SQL and include it.
+                    if should_generate_sql(messages, last_err=last_err):
                         try:
                             sql = generate_duckdb_sql(_last_user_text(messages))
                         except Exception:
@@ -339,7 +341,7 @@ Now: make the next step using real tool_calls (not plain text) to progress towar
                                 {
                                     "role": "user",
                                     "content": (
-                                        "Use this DuckDB SQL (view name is `output`) when calling the parquet query tool:\n"
+                                        "Use this DuckDB SQL when calling the appropriate query tool (parquet OR netcdf):\n"
                                         f"{sql}"
                                     ),
                                 }
