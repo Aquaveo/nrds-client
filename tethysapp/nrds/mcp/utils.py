@@ -112,7 +112,7 @@ def _prefer_id_objects(payload: Dict[str, Any], key: str) -> None | Dict[str, An
 DATE_PATTERN = r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$"
 DEFAULT_START = "2025-08-01"
 DEFAULT_TZ = ZoneInfo("America/Denver")
-\
+
 def _parse_iso_date(s: str) -> date:
     s = s.strip().replace("/", "-")
     return datetime.strptime(s, "%Y-%m-%d").date()

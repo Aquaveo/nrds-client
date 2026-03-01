@@ -18,7 +18,9 @@ SYSTEM_MSG = {
         "2) Use ONLY argument keys defined in the tool's JSON schema. Do NOT add extra keys.\n"
         "3) Include ALL required arguments from the tool schema.\n"
         "4) Never invent IDs/values for model/forecast/cycle/vpu. If not certain, call the corresponding list_* tool first.\n\n"
+        "5) The s3 bucket is s3://ciroh-community-ngen-datastream or https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com\n"
         "Query tools (DuckDB):\n"
+        "6) For optional parameters: OMIT the key entirely if you don't have a value. Never pass null/None/''.\n\n"
         "- For Parquet: use query_parquet_output_file (args: s3_url, query). Do NOT use s3_urls/type/args.\n"
         "- For NetCDF: use query_netcdf_output_file (args: s3_url, query). Do NOT use s3_urls/type/args.\n"
         "- SQL queries MUST read FROM output. Never use read_parquet(...) or read_netcdf(...).\n"
@@ -44,6 +46,7 @@ DUCKDB_SQL_SYSTEM_MSG = {
 AUTO_FIX_SYSTEM_MSG = (
     "Fix rules:\n"
     "- Use only schema keys.\n"
+    "- Omit optional keys instead of passing null/None/''.\n"
     "- For NetCDF: query_netcdf_output_file args=(s3_url, query).\n"
     "- For Parquet: query_parquet_output_file args=(s3_url, query).\n"
     "- Do NOT use s3_urls/type/args.\n"

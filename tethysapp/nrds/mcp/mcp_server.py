@@ -57,7 +57,7 @@ def list_available_dates_tool(
         Field(
             default=None,
             pattern=DATE_PATTERN,
-            description="End date (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD. Default is today's date (America/Denver).",
+            description="End date (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD. Default is today's date.",
         ),
     ] = None,
 ) -> Dict[str, Any]:
@@ -95,7 +95,7 @@ def list_available_dates_tool(
         name="list_available_forecasts", 
         description="List available forecasts for a given model and date"
         )
-def list_available_forecast_tool(
+def list_available_forecasts_tool(
     model: Annotated[MODELS, Field(description="Model id")],
     date: Annotated[
         str,
@@ -105,7 +105,7 @@ def list_available_forecast_tool(
         ),
     ],
 ) -> Dict[str, Any]:
-    raw = _get_json_raw("list_available_forecast", params={"model": model, "date": date})
+    raw = _get_json_raw("list_available_forecasts", params={"model": model, "date": date})
     raw = _prefer_id_objects(raw, "forecasts")
     return raw
 
@@ -305,11 +305,11 @@ def query_parquet_output_file_tool(
     return _get_json_raw("query_parquet_output_file", params=params)
 
 @mcp.tool(
-    name="query parquet output file timeseries",
+    name="query_parquet_output_file_timeseries",
     description="Run a SQL query against multiple parquet output files in S3 using DuckDB. Provide a list of S3 URLs to the parquet files and the SQL query (e.g. SELECT * FROM s3_parquet('s3://bucket/path/to/files_*.parquet') WHERE date >= '2025-08-01'). Returns query results as list of dicts."
 )
 def query_parquet_output_file_timeseries_tool(
-    s3_urls: Annotated[str, Field(description="Comma-separated list of S3 URLs to the parquet files (e.g. s3://bucket/path/to/files_*.parquet)", pattern=r"^https://.+\.parquet(,s3://.+\.parquet)*$")],
+    s3_urls: Annotated[str, Field(description="Comma-separated list of S3 URLs to the parquet files (e.g. s3://bucket/path/to/files_*.parquet)", pattern=r"^(?:(?:https://|s3://).+\.parquet)(?:,(?:(?:https://|s3://).+\.parquet))*$")],
     feature_id: Annotated[Optional[str], Field(description="Optional feature id to filter the query results (e.g. a specific basin or location id)", pattern=r"^\w+$")] = None,
     type: Annotated[Optional[str], Field(description="Optional type to filter the query results (e.g. 'basin' or 'location')", pattern=r"^\w+$")] = None,
     start: Annotated[Optional[str], Field(description="Optional start date to filter the query results (inclusive). ISO YYYY-MM-DD or YYYY/MM/DD.", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
@@ -372,6 +372,7 @@ def query_netcdf_output_file_timeseries_tool(
         limit and "limit": limit,
      }
     return _get_json_raw("query_netcdf_output_file_timeseries", params=params)
+
 
 
 if __name__ == "__main__":

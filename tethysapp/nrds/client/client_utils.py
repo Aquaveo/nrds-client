@@ -114,6 +114,26 @@ def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
     if not isinstance(args, dict):
         return args
 
+    # ✅ Drop null/empty placeholders the LLM likes to emit
+    # - JSON null becomes None after json.loads()
+    # - Sometimes models emit "_" or "null"/"" strings
+    for k in list(args.keys()):
+        v = args.get(k)
+
+        # common junk key
+        if k == "_":
+            args.pop(k, None)
+            continue
+
+        if v is None:
+            args.pop(k, None)
+            continue
+
+        if isinstance(v, str) and v.strip().lower() in {"", "null", "none"}:
+            args.pop(k, None)
+            continue
+
+    # --- keep your existing logic below ---
     single_file_tools = {"query_parquet_output_file", "query_netcdf_output_file"}
     if tool_name not in single_file_tools:
         return args

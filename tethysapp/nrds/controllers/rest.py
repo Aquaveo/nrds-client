@@ -181,12 +181,12 @@ def list_avaiable_dates(request) -> JsonResponse:
             else:
                 labels.append(folder)
 
-        dates = [{"id": did, "label": lbl} for did, lbl in zip(date_ids, labels)]
-
+        # dates = [{"id": did, "label": lbl} for did, lbl in zip(date_ids, labels)]
+        sorted_dates = sorted(labels, reverse=True)
         return JsonResponse(
             {
                 "path": s3_url,
-                "dates": dates,
+                "dates": sorted_dates,
             },
             safe=False,
         )
@@ -257,7 +257,9 @@ def query_netcdf_output_file(request) -> JsonResponse:
     # For simplicity, we'll just read the whole file and return it here, but this could be extended to support more specific queries if needed.
     file_url = request.GET.get("s3_url")
     query = request.GET.get("query")
-
+    if file_url.startswith("s3://ciroh-community-ngen-datastream"):
+        file_url = file_url.replace("s3://ciroh-community-ngen-datastream", "https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com")
+ 
     if not file_url:
         return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
     if not query:
@@ -287,14 +289,15 @@ def query_netcdf_output_file(request) -> JsonResponse:
     except Exception as e:
         return JsonResponse({"file": file_url, "query": query, "error": str(e)}, status=500)   
 
-
 @controller(url="api/query-output-netcdf-timeseries", login_required=False)
 @api_view(["GET"])
 def query_netcdf_output_timeseries(request) -> JsonResponse:
     """Query a time series from a netcdf output file on S3."""
     file_url = request.GET.get("s3_url")
     feature_id = request.GET.get("feature_id")
-
+    if file_url.startswith("s3://ciroh-community-ngen-datastream"):
+        file_url = file_url.replace("s3://ciroh-community-ngen-datastream", "https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com")
+ 
     if not file_url:
         return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
     if feature_id is None:
@@ -375,6 +378,9 @@ def query_parquet_output_file(request) -> JsonResponse:
     """Run any DuckDB SQL query against a Parquet file on S3 (view name: `output`)."""
     query = request.GET.get("query")
     file_url = request.GET.get("s3_url")
+    if file_url.startswith("s3://ciroh-community-ngen-datastream"):
+        file_url = file_url.replace("s3://ciroh-community-ngen-datastream", "https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com")
+    
 
     if not file_url:
         return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
@@ -420,7 +426,9 @@ def query_parquet_output_timeseries(request) -> JsonResponse:
     """
     file_url = request.GET.get("s3_url")
     feature_id = request.GET.get("feature_id")
-
+    if file_url.startswith("s3://ciroh-community-ngen-datastream"):
+        file_url = file_url.replace("s3://ciroh-community-ngen-datastream", "https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com")
+ 
     if not file_url:
         return JsonResponse({"error": "Missing required query param: s3_url"}, status=400)
     if feature_id is None:
