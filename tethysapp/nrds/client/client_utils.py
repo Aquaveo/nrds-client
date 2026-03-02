@@ -108,7 +108,7 @@ def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
     """
     Minimal normalization for common LLM mistakes:
       - {"args": "[url, query]"} -> {"s3_url": url, "query": query}
-      - {"s3_urls": "[url]"} for single-file tools -> {"s3_url": url}
+      - {"s3_url": "[url]"} for single-file tools -> {"s3_url": url}
       - drop unexpected "type" for single-file query tools
     """
     if not isinstance(args, dict):
@@ -170,7 +170,7 @@ def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
             url = str(s[0])
         if url:
             args["s3_url"] = url
-        args.pop("s3_urls", None)
+        args.pop("s3_url", None)
 
     # Drop "type" if still present (these tools don't accept it)
     args.pop("type", None)

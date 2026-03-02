@@ -181,7 +181,6 @@ def list_avaiable_dates(request) -> JsonResponse:
             else:
                 labels.append(folder)
 
-        # dates = [{"id": did, "label": lbl} for did, lbl in zip(date_ids, labels)]
         sorted_dates = sorted(labels, reverse=True)
         return JsonResponse(
             {
@@ -378,6 +377,7 @@ def query_parquet_output_file(request) -> JsonResponse:
     """Run any DuckDB SQL query against a Parquet file on S3 (view name: `output`)."""
     query = request.GET.get("query")
     file_url = request.GET.get("s3_url")
+    print(f"Received query request for file: {file_url} with query: {query}")
     if file_url.startswith("s3://ciroh-community-ngen-datastream"):
         file_url = file_url.replace("s3://ciroh-community-ngen-datastream", "https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com")
     

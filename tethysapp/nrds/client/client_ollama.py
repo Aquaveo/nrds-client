@@ -79,7 +79,6 @@ async def process_tool_calls(tool_calls, messages):
             except Exception:
                 args = {"_raw": args}
 
-        # ✅ minimal normalization to prevent args/s3_urls/type mistakes
         args = _normalize_query_tool_args(tool_name, args)
 
         print(f"🔧 Tool requested: {tool_name}")
