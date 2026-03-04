@@ -69,6 +69,7 @@ _VALID_CYCLES_BY_FORECAST = {
     "analysis_assim_extend": set(get_args(ANALYSIS_ASSIM_EXTEND_CYCLES)),
 }
 
+
 def _last_user_text(messages) -> str:
     for m in reversed(messages):
         if m.get("role") == "user":

@@ -4,6 +4,7 @@ import os
 import json
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+MAX_TOOL_ITEMS_IN_CONTEXT = int(os.getenv("MCP_TOOL_CONTEXT_MAX_ITEMS", "50"))
 
 def _get_context_length_from_ps(model_name: str) -> int | None:
     """Returns current context_length for the running model from /api/ps."""
@@ -61,3 +62,31 @@ def _print_context_usage(resp: dict, model_name: str):
         )
     elif prompt_tokens is not None:
         print(f"🧠 Tokens: prompt {prompt_tokens}; output {out_tokens}")
+
+
+def _compact_tool_result_for_context(tool_result, max_items: int = MAX_TOOL_ITEMS_IN_CONTEXT):
+    if isinstance(tool_result, dict):
+        compact = dict(tool_result)
+
+        # Keep errors untouched.
+        if compact.get("error"):
+            return compact
+
+        # Trim large array fields commonly returned by list/query tools.
+        for key in ("data", "files", "models", "dates", "forecasts", "cycles", "vpus"):
+            value = compact.get(key)
+            if isinstance(value, list) and len(value) > max_items:
+                compact[key] = value[:max_items]
+                compact[f"{key}_truncated"] = True
+                compact[f"{key}_total"] = len(value)
+        return compact
+
+    if isinstance(tool_result, list) and len(tool_result) > max_items:
+        return {
+            "items": tool_result[:max_items],
+            "items_truncated": True,
+            "items_total": len(tool_result),
+        }
+
+    return tool_result
+

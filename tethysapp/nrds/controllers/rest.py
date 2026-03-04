@@ -23,6 +23,13 @@ OUTPUTS_DIR = "outputs"
 PREFIX_HYDROFABRIC = "v2.2_hydrofabric"
 NGEN_RUN_PREFIX = "ngen-run/outputs/troute"
 
+
+def _ensure_full_s3_url(path: str) -> str:
+    p = str(path or "").strip()
+    if p.startswith(("s3://", "https://")):
+        return p
+    return f"s3://{p.lstrip('/')}"
+
 @controller(url="api/list-available-outputs-files", login_required=False)
 @api_view(["GET"])
 def list_available_outputs_files(request) -> JsonResponse:
@@ -95,7 +102,7 @@ def get_output_file(request) -> JsonResponse:
         
         files = sorted(files)
 
-        items = [{"name": f.split("/")[-1], "path": f} for f in files]
+        items = [{"name": f.split("/")[-1], "path": _ensure_full_s3_url(f)} for f in files]
 
         if file_name:
             sel = next((it for it in items if it["name"] == file_name), None)

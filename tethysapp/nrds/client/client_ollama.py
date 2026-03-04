@@ -23,12 +23,13 @@ from .client_utils import (
     _last_user_text,
     _get_message,
 )
-from .context import _print_context_usage
+from .context import _print_context_usage, _compact_tool_result_for_context
 from .messages import SYSTEM_MSG
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:9000/sse")
 MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "0"))
+
 
 # Client
 def mcp_client() -> MCPClient:
@@ -129,19 +130,19 @@ async def process_tool_calls(tool_calls, messages):
         print(f"📝 Arguments: {args}")
 
         tool_result = await execute_tool(tool_name, args)
-        print(f"✅ Tool result: {tool_result}\n")
+        tool_result_for_context = _compact_tool_result_for_context(tool_result)
+        print(f"✅ Tool result: {tool_result_for_context}\n")
 
         messages.append(
             {
                 "role": "tool",
                 "tool_name": tool_name,
-                "content": json.dumps(tool_result)
-                if isinstance(tool_result, (dict, list))
-                else str(tool_result),
+                "content": json.dumps(tool_result_for_context)
+                if isinstance(tool_result_for_context, (dict, list))
+                else str(tool_result_for_context),
             }
         )
 
-        print(f"{tool_result}")
         print(f"🔄 Updated messages with tool result. Total messages: {len(messages)}")
 
         if isinstance(tool_result, dict) and tool_result.get("error"):
@@ -213,8 +214,10 @@ async def main():
             tool_calls = msg.get("tool_calls") or []
 
             if not tool_calls:
-                print("🔍 Checking for inline tool calls in text...")
-                tool_calls = extract_inline_tool_calls(msg.get("content", "")) or []
+                assistant_content = msg.get("content", "") or ""
+                if "{" in assistant_content:
+                    print("🔍 Checking for inline tool calls in text...")
+                tool_calls = extract_inline_tool_calls(assistant_content) or []
 
             if not tool_calls:
                 assistant_text = msg.get("content", "")
