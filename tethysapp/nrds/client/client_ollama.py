@@ -17,6 +17,9 @@ from .client_utils import (
     _is_plausible_outputs_file,
     _last_tool_file_url,
     _get_message,
+    _tool_error_text,
+    _tool_call_signature,
+    
 )
 import readline  # for better input experience (history, editing)
 from .terminal import setup_readline
@@ -71,37 +74,6 @@ async def execute_tool(tool_name: str, arguments: dict):
         return {"error": str(e)}
 
 
-def _tool_call_signature(tool_name: str, args: dict) -> str:
-    try:
-        args_blob = json.dumps(args, sort_keys=True, ensure_ascii=False)
-    except Exception:
-        args_blob = str(args)
-    return f"{tool_name}|{args_blob}"
-
-
-def _tool_error_text(tool_result) -> str | None:
-    if isinstance(tool_result, dict):
-        err = tool_result.get("error")
-        if err:
-            return str(err)
-
-    if isinstance(tool_result, str):
-        low = tool_result.lower()
-        if any(
-            token in low
-            for token in (
-                "validation error",
-                "error calling tool",
-                "unknown tool",
-                "httperror",
-                "traceback",
-                "server error",
-                "failed",
-            )
-        ):
-            return tool_result
-
-    return None
 
 
 def _bump_failed_signature_counts(counts: dict[str, int], signatures: list[str]) -> str | None:

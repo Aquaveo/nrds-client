@@ -263,3 +263,34 @@ def _get_message(resp):
         "tool_calls": getattr(m, "tool_calls", None),
         "thinking": getattr(m, "thinking", None),
     }
+def _tool_call_signature(tool_name: str, args: dict) -> str:
+    try:
+        args_blob = json.dumps(args, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        args_blob = str(args)
+    return f"{tool_name}|{args_blob}"
+
+
+def _tool_error_text(tool_result) -> str | None:
+    if isinstance(tool_result, dict):
+        err = tool_result.get("error")
+        if err:
+            return str(err)
+
+    if isinstance(tool_result, str):
+        low = tool_result.lower()
+        if any(
+            token in low
+            for token in (
+                "validation error",
+                "error calling tool",
+                "unknown tool",
+                "httperror",
+                "traceback",
+                "server error",
+                "failed",
+            )
+        ):
+            return tool_result
+
+    return None
