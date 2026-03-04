@@ -21,14 +21,13 @@ from .client_utils import (
     _is_plausible_outputs_file,
     _extract_resolved_path,
     _last_tool_file_url,
-    _timeseries_sql_from_user_text,
     _last_user_text,
     _get_message,
 )
 from .context import _print_context_usage, _compact_tool_result_for_context
 from .messages import SYSTEM_MSG
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3")
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:9000/sse")
 MAX_TOOL_REPAIR_ATTEMPTS = int(os.getenv("MCP_TOOL_REPAIR_ATTEMPTS", "0"))
 
@@ -124,12 +123,6 @@ async def process_tool_calls(tool_calls, messages):
                     fallback = _last_tool_file_url(messages, exts=(".parquet",))
                 else:
                     fallback = _last_tool_file_url(messages, exts=(".nc", ".nc4"))
-                    if not fallback:
-                        parquet_fallback = _last_tool_file_url(messages, exts=(".parquet",))
-                        if parquet_fallback:
-                            print("🔁 Switching tool: query_netcdf_output_file → query_parquet_output_file")
-                            tool_name = "query_parquet_output_file"
-                            fallback = parquet_fallback
                 if fallback:
                     print(f"🔁 Reusing last output file URL: {fallback}")
                     args["s3_url"] = fallback
@@ -151,11 +144,6 @@ async def process_tool_calls(tool_calls, messages):
 
                 # SQL should read from temp view 'output' for this backend.
                 args["query"] = _rewrite_from_to_output(q)
-
-            ts_sql = _timeseries_sql_from_user_text(user_text, args.get("query"))
-            if ts_sql:
-                print("🔁 Rewriting SQL for time-series request")
-                args["query"] = ts_sql
 
         print(f"🔧 Tool requested: {tool_name}")
         print(f"📝 Arguments: {args}")
@@ -232,7 +220,7 @@ async def main():
                 response = ollama.chat(
                     model=OLLAMA_MODEL,
                     messages=messages,
-                    think=False,
+                    think=True,
                     tools=tools,
                     stream=False,
                     options={"temperature": 0}
@@ -273,7 +261,7 @@ async def main():
                         repair_resp = ollama.chat(
                             model=OLLAMA_MODEL,
                             messages=messages,
-                            think=False,
+                            think=True,
                             tools=tools,
                             stream=False,
                             options={"temperature": 0} 

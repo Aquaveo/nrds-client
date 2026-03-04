@@ -277,54 +277,6 @@ def _rewrite_from_to_output(query: str) -> str:
     return query
 
 
-def _is_invalid_timeseries_query(query: str | None) -> bool:
-    if not isinstance(query, str) or not query.strip():
-        return True
-    q = query.strip()
-    ql = q.lower()
-
-    # Hallucinated schema pattern (column = "flow") is invalid for this dataset.
-    if re.search(r"\bcolumn\s*=", ql):
-        return True
-
-    # Backend expects SQL to read from temp view `output`.
-    if any(fn in ql for fn in ("read_parquet(", "read_netcdf(", "parquet_scan(")):
-        return True
-
-    m = _FROM_TARGET_RE.search(q)
-    if not m:
-        return True
-    target = m.group(1).strip().rstrip(",").strip("'\"`").lower()
-    return target != "output"
-
-
-def _timeseries_sql_from_user_text(user_text: str, current_query: str | None = None) -> str | None:
-    t = (user_text or "").lower()
-    if "time series" not in t and "timeseries" not in t:
-        return None
-
-    m = re.search(r"\b(flow|velocity|depth|nudge)\b", t)
-    if not m:
-        return None
-    var = m.group(1)
-
-    # Only provide deterministic fallback when model SQL is clearly invalid.
-    if not _is_invalid_timeseries_query(current_query):
-        return None
-
-    feature_match = re.search(r"\bfeature[_\s-]*id\s*(?:=|is|:)?\s*(\d+)\b", t)
-    if feature_match:
-        fid = feature_match.group(1)
-        return (
-            f"SELECT time, feature_id, {var} FROM output "
-            f"WHERE feature_id = {fid} AND {var} IS NOT NULL "
-            "ORDER BY time LIMIT 5000;"
-        )
-    return (
-        f"SELECT time, feature_id, {var} FROM output "
-        f"WHERE {var} IS NOT NULL ORDER BY time, feature_id LIMIT 5000;"
-    )
-
 def extract_file_url(text: str) -> Optional[str]:
     m = URL_RE.search(text or "")
     if not m:
