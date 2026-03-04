@@ -322,7 +322,6 @@ def read_parquet_output_file(request) -> JsonResponse:
     columns = df.columns.tolist()
     return JsonResponse({"path": s3_url, "columns": columns, "data": lit_df}, safe=False)
 
-
 @controller(url="api/query-output-netcdf-file", login_required=False)
 @api_view(["GET"])
 def query_netcdf_output_file(request) -> JsonResponse:

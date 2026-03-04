@@ -2,9 +2,11 @@ import urllib.request
 import urllib.error
 import os
 import json
+import logging
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 MAX_TOOL_ITEMS_IN_CONTEXT = int(os.getenv("MCP_TOOL_CONTEXT_MAX_ITEMS", "50"))
+LOGGER = logging.getLogger("nrds.client")
 
 def _get_context_length_from_ps(model_name: str) -> int | None:
     """Returns current context_length for the running model from /api/ps."""
@@ -42,7 +44,7 @@ def _get_context_length_from_ps(model_name: str) -> int | None:
 
 
 def _print_context_usage(resp: dict, model_name: str):
-    """Print: used/total + left after each Ollama response."""
+    """Log token/context usage after each Ollama response."""
     prompt_tokens = resp.get("prompt_eval_count")
     out_tokens = resp.get("eval_count")
 
@@ -56,12 +58,12 @@ def _print_context_usage(resp: dict, model_name: str):
         left_after_prompt = max(total_ctx - prompt_tokens, 0)
         used_now = prompt_tokens + out_tokens
         left_now = max(total_ctx - used_now, 0)
-        print(
+        LOGGER.debug(
             f"🧠 Context: prompt {prompt_tokens}/{total_ctx} (left {left_after_prompt}); "
             f"output {out_tokens}; total {used_now}/{total_ctx} (left {left_now})"
         )
     elif prompt_tokens is not None:
-        print(f"🧠 Tokens: prompt {prompt_tokens}; output {out_tokens}")
+        LOGGER.debug("🧠 Tokens: prompt %s; output %s", prompt_tokens, out_tokens)
 
 
 def _compact_tool_result_for_context(tool_result, max_items: int = MAX_TOOL_ITEMS_IN_CONTEXT):
