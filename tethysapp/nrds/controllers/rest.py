@@ -55,12 +55,79 @@ def list_available_outputs_files(request) -> JsonResponse:
         print(f"🔍 Listing files at {s3_url} ...")
         fs = fsspec.filesystem("s3", anon=True)
         outputs = fs.ls(s3_url, detail=False)
-        files = [f.split("s3://ciroh-community-ngen-datastream")[-1] for f in outputs]
-        return JsonResponse({"path": s3_url, "files": files}, safe=False)
+        file_names = [f.split("/troute/")[-1] for f in outputs]
+        file_paths = [os.path.join(s3_url, f) for f in file_names]
+        files = [{"name": fname, "path": fpath} for fname, fpath in zip(file_names, file_paths)]
+        return JsonResponse({"files": files}, safe=False)
 
     except FileNotFoundError:
         # valid request, just no outputs at that path
         return JsonResponse({"path": s3_url, "files": []}, safe=False)
+
+
+@controller(url="api/get-output-file", login_required=False)
+@api_view(["GET"])
+def get_output_file(request) -> JsonResponse:
+    model = request.GET.get("model")
+    date = _normalize_date_folder(request.GET.get("date"))
+    forecast = request.GET.get("forecast")
+    cycle = request.GET.get("cycle")
+    vpu = request.GET.get("vpu")
+
+    # optional selectors
+    file_name = request.GET.get("file_name")
+    index = request.GET.get("index")
+    ensemble = request.GET.get("ensemble")  # only used for medium_range
+
+    # build directory like your other endpoints
+    s3_dir = f"s3://{BUCKET}/{OUTPUTS_DIR}/{model}/{PREFIX_HYDROFABRIC}/{date}/{forecast}/{cycle}"
+    if forecast == "medium_range":
+        ens = ensemble or "1"
+        s3_dir += f"/{ens}/{vpu}/{NGEN_RUN_PREFIX}"
+    else:
+        s3_dir += f"/{vpu}/{NGEN_RUN_PREFIX}"
+
+    try:
+        fs = fsspec.filesystem("s3", anon=True)
+        files = fs.ls(s3_dir, detail=False)
+        
+        files = [f for f in files if f.lower().endswith(".parquet") | f.lower().endswith((".nc"))]
+        
+        files = sorted(files)
+
+        items = [{"name": f.split("/")[-1], "path": f} for f in files]
+
+        if file_name:
+            sel = next((it for it in items if it["name"] == file_name), None)
+            if not sel:
+                return JsonResponse(
+                    {"dir": s3_dir, "count": len(items), "error": f"file_name not found: {file_name}"},
+                    status=404,
+                )
+        else:
+            # index selection
+            if index is None:
+                return JsonResponse(
+                    {"dir": s3_dir, "count": len(items), "error": "Provide file_name or index"},
+                    status=400,
+                )
+            try:
+                idx = int(index)
+            except Exception:
+                return JsonResponse({"error": "index must be an integer"}, status=400)
+
+            if idx < 0 or idx >= len(items):
+                return JsonResponse(
+                    {"dir": s3_dir, "count": len(items), "error": f"index out of range: {idx}"},
+                    status=400,
+                )
+            sel = items[idx]
+
+        return JsonResponse({"dir": s3_dir, "count": len(items), "selected": sel}, safe=True)
+
+    except FileNotFoundError:
+        return JsonResponse({"dir": s3_dir, "count": 0, "selected": None}, safe=True)
+
 
 @controller(url="api/list-available-vpus", login_required=False)
 @api_view(["GET"])
@@ -79,12 +146,12 @@ def list_available_vpus(request) -> JsonResponse:
         dirs = fs.ls(s3_url, detail=False)
         vpu_ids = [d.split("/")[-1] for d in dirs]
         vpu_labels = [_label_from_id(v) for v in vpu_ids]
-        vpus = [{"id": vid, "label": lbl} for vid, lbl in zip(vpu_ids, vpu_labels)]
+        # vpus = [{"id": vid, "label": lbl} for vid, lbl in zip(vpu_ids, vpu_labels)]
 
         return JsonResponse(
             {
                 "path": s3_url,
-                "vpus": vpus,
+                "vpus": vpu_labels
             },
             safe=False,
         )

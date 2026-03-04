@@ -25,6 +25,194 @@ SQL_HINTS = (
 
 URL_RE = re.compile(r"(https?://\S+|s3://\S+)", re.IGNORECASE)
 
+# matches filenames like troute_output_YYYYMMDDHHMM.parquet
+_PARQUET_NAME_RE = re.compile(r"\b([A-Za-z0-9._-]+\.parquet)\b", re.IGNORECASE)
+
+# capture the first FROM target token (simple queries)
+_FROM_TARGET_RE = re.compile(r"(?is)\bfrom\s+([^\s;]+)")
+
+
+
+_ORDINALS = {
+    "first": 0, "1st": 0,
+    "second": 1, "2nd": 1,
+    "third": 2, "3rd": 2,
+    "fourth": 3, "4th": 3,
+    "fifth": 4, "5th": 4,
+}
+
+_DATE_RE = re.compile(r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b")
+_CYCLE_RE = re.compile(r"\bcycle\s*([01]\d|2[0-3])\b", re.IGNORECASE)
+_VPU_RE = re.compile(r"\bvpu\s*([0-9]{1,2})\b", re.IGNORECASE)
+_MODEL_RE = re.compile(r"\bmodel\s+([a-z0-9_ ]+)\b", re.IGNORECASE)
+
+def _last_user_text(messages) -> str:
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            return str(m.get("content") or "")
+    return ""
+def _is_plausible_outputs_parquet(u: str) -> bool:
+    if not isinstance(u, str):
+        return False
+    ul = u.lower()
+    return (ul.startswith(("s3://", "https://")) and "/outputs/" in ul and ul.endswith(".parquet"))
+
+def _is_plausible_outputs_file_url(u: str, ext: str) -> bool:
+    if not isinstance(u, str):
+        return False
+    u2 = u.lower()
+    if not (u2.startswith("s3://") or u2.startswith("https://")):
+        return False
+    # your real paths live under /outputs/...
+    if "/outputs/" not in u2:
+        return False
+    return u2.endswith(ext)
+
+def _parse_forecast(user_text: str) -> str:
+    t = user_text.lower()
+    if "medium range" in t or "medium_range" in t:
+        return "medium_range"
+    if "short range" in t or "short_range" in t:
+        return "short_range"
+    if "analysis assim" in t or "analysis_assim_extend" in t:
+        return "analysis_assim_extend"
+    # default consistent with your tools
+    return "short_range"
+
+def _parse_resolve_args(user_text: str) -> dict | None:
+    t = user_text.lower()
+
+    # selector (index)
+    index = None
+    for k, v in _ORDINALS.items():
+        if k in t:
+            index = v
+            break
+
+    # if user didn't refer to an ordinal, don't auto-chain
+    if index is None and "output file" in t:
+        # "the output file" without ordinal is ambiguous; don't guess
+        return None
+
+    # model
+    model = None
+    m = _MODEL_RE.search(t)
+    if m:
+        model = m.group(1).strip()
+        # stop at common separators
+        for stop in [" for ", " on ", " vpu", " cycle", " forecast", " today"]:
+            model = model.split(stop)[0].strip()
+        model = model.replace(" ", "_")
+
+    # cycle
+    cycle = None
+    m = _CYCLE_RE.search(t)
+    if m:
+        cycle = m.group(1)
+
+    # vpu
+    vpu = None
+    m = _VPU_RE.search(t)
+    if m:
+        vpu = f"VPU_{int(m.group(1)):02d}"
+
+    # date
+    date = None
+    m = _DATE_RE.search(t)
+    if m:
+        date = m.group(1)
+    elif "today" in t:
+        date = None  # let server default
+
+    forecast = _parse_forecast(t)
+
+    if not model or not cycle or not vpu:
+        return None
+
+    args = {
+        "model": model,
+        "forecast": forecast,
+        "cycle": cycle,
+        "vpu": vpu,
+        "index": index if index is not None else 0,
+    }
+    if date is not None:
+        args["date"] = date
+
+    # medium_range needs ensemble=1 in your layout; send it explicitly
+    if forecast == "medium_range":
+        args["ensemble"] = "1"
+
+    return args
+
+def _extract_resolved_path(resolve_payload) -> str | None:
+    # be permissive: support a few possible payload shapes
+    if isinstance(resolve_payload, dict):
+        if isinstance(resolve_payload.get("selected"), dict):
+            p = resolve_payload["selected"].get("path")
+            if isinstance(p, str):
+                return p
+        p = resolve_payload.get("path")
+        if isinstance(p, str) and p.lower().endswith(".parquet"):
+            return p
+        if isinstance(resolve_payload.get("file"), dict):
+            p = resolve_payload["file"].get("path")
+            if isinstance(p, str):
+                return p
+    return None
+
+
+def _maybe_join_dir_and_filename(s3_url: str, query: str) -> str:
+    """
+    If the model put a directory in s3_url and a filename in the SQL,
+    join them to produce a full file path.
+    """
+    if not isinstance(s3_url, str) or not isinstance(query, str):
+        return s3_url
+    if s3_url.lower().endswith(".parquet"):
+        return s3_url
+    if s3_url.endswith("/"):
+        m = _PARQUET_NAME_RE.search(query)
+        if m:
+            return s3_url.rstrip("/") + "/" + m.group(1)
+    return s3_url
+
+def _rewrite_from_to_full_s3_path(query: str, s3_url: str) -> str:
+    """
+    Rewrite:
+      SELECT ... FROM troute_output_....parquet
+    into:
+      SELECT ... FROM 's3://.../troute_output_....parquet'
+    Uses the tool arg s3_url as the canonical path.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return query
+    if not isinstance(s3_url, str) or not s3_url.strip():
+        return query
+
+    # If the query already contains the full s3_url, leave it
+    if s3_url in query:
+        return query
+
+    m = _FROM_TARGET_RE.search(query)
+    if not m:
+        return query
+
+    target = m.group(1).strip()
+
+    # Don't touch function calls like read_parquet(...)
+    if target.lower().startswith(("read_parquet", "parquet_scan", "read_csv", "read_json")):
+        return query
+
+    # Replace if it's clearly not a full path (bare filename or "output")
+    is_bare_file = target.lower().endswith(".parquet") and "://" not in target and "/" not in target
+    is_output = target.lower() == "output"
+
+    if is_bare_file or is_output:
+        return _FROM_TARGET_RE.sub(f"FROM '{s3_url}'", query, count=1)
+
+    return query
+
 def extract_file_url(text: str) -> Optional[str]:
     m = URL_RE.search(text or "")
     if not m:
@@ -105,62 +293,14 @@ def extract_inline_tool_calls(text: str) -> List[Dict[str, Any]]:
 
 
 def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
-    """
-    Minimal normalization for common LLM mistakes:
-      - {"args": "[url, query]"} -> {"s3_url": url, "query": query}
-      - {"s3_url": "[url]"} for single-file tools -> {"s3_url": url}
-      - drop unexpected "type" for single-file query tools
-    """
     if not isinstance(args, dict):
         return args
 
-    # ✅ Drop null/empty placeholders the LLM likes to emit
-    # - JSON null becomes None after json.loads()
-    # - Sometimes models emit "_" or "null"/"" strings
-    for k in list(args.keys()):
-        v = args.get(k)
+    # Tools we want to strictly sanitize
+    query_tools = {"query_parquet_output_file", "query_netcdf_output_file"}
+    read_tools = {"read_parquet_output_file", "read_netcdf_output_file"}
 
-        # common junk key
-        if k == "_":
-            args.pop(k, None)
-            continue
-
-        if v is None:
-            args.pop(k, None)
-            continue
-
-        if isinstance(v, str) and v.strip().lower() in {"", "null", "none"}:
-            args.pop(k, None)
-            continue
-
-    # --- keep your existing logic below ---
-    single_file_tools = {"query_parquet_output_file", "query_netcdf_output_file"}
-    if tool_name not in single_file_tools:
-        return args
-
-    # Drop common hallucinated keys
-    if "type" in args and "s3_url" in args:
-        args.pop("type", None)
-
-    # Handle {"args": ...}
-    if "args" in args and ("s3_url" not in args or "query" not in args):
-        a = args.get("args")
-        if isinstance(a, str):
-            try:
-                a = json.loads(a)
-            except Exception:
-                pass
-        if isinstance(a, dict):
-            # if it already has s3_url/query, use it
-            if "s3_url" in a or "query" in a:
-                merged = dict(args)
-                merged.pop("args", None)
-                merged.update(a)
-                args = merged
-        elif isinstance(a, list) and len(a) >= 2:
-            args = {"s3_url": a[0], "query": a[1]}
-
-    # Handle mistaken s3_urls for single-file tools
+    # ---- Fix common wrong key: s3_urls -> s3_url (and FIX the pop bug) ----
     if "s3_url" not in args and "s3_urls" in args:
         s = args.get("s3_urls")
         url = None
@@ -170,10 +310,24 @@ def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
             url = str(s[0])
         if url:
             args["s3_url"] = url
-        args.pop("s3_url", None)
+        args.pop("s3_urls", None)
 
-    # Drop "type" if still present (these tools don't accept it)
-    args.pop("type", None)
+    # ---- query tools: keep ONLY (s3_url, query), and try to repair folder+filename ----
+    if tool_name in query_tools:
+        # If model passed folder path + files_names, combine to full file URL
+        s3_url = args.get("s3_url")
+        fname = args.get("files_names") or args.get("file_name") or args.get("filename")
+        if isinstance(s3_url, str) and fname and not s3_url.lower().endswith((".parquet", ".nc", ".nc4")):
+            args["s3_url"] = s3_url.rstrip("/") + "/" + str(fname).lstrip("/")
+
+        # Drop everything except schema keys
+        args = {k: args[k] for k in ("s3_url", "query") if k in args}
+        return args
+
+    # ---- read tools: keep ONLY (s3_url) ----
+    if tool_name in read_tools:
+        args = {k: args[k] for k in ("s3_url",) if k in args}
+        return args
 
     return args
 

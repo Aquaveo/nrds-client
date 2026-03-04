@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from typing_extensions import Annotated
 from pydantic import Field
 from fastmcp import FastMCP
@@ -64,7 +64,7 @@ def healthcheck() -> Dict[str, Any]:
     }
 
 
-@mcp.tool(name="list_available_models", description="List available NRDS models")
+@mcp.tool(name="list_available_models", description="List available NRDS models. It should not have any arguments when called.")
 def list_available_models_tool() -> Dict[str, Any]:
     raw = _get_json_raw("list_available_models")
     raw = _prefer_id_objects(raw, "models")
@@ -220,15 +220,15 @@ def list_available_vpus_tool(
             pattern=r"^(?:[01]\d|2[0-3])$",
         ),
     ] = "00",
-) -> Dict[str, Any]:
+) -> List [str]:
     forecast_id = _as_id(forecast)
     end_date = _parse_date_or_today(date, "date")
     raw = _get_json_raw(
         "list_available_vpus",
         params={"model": model, "date": end_date, "forecast": forecast_id, "cycle": cycle},
     )
-    raw = _prefer_id_objects(raw, "vpus")
-    return raw
+    vpus = raw.get("vpus") 
+    return vpus
 
 
 @mcp.tool(
@@ -279,88 +279,118 @@ def list_available_outputs_files_tool(
     raw = _get_json_raw("list_available_outputs_files", params=params)
     return raw
 
-
 @mcp.tool(
-    name="list_available_outputs_files_short_range",
-    description="List available output files for short_range (hourly) forecast. cycle must be 00-23.",
+    name="resolve_output_file",
+    description="Resolve a single output file path for model/date/forecast/cycle/vpu by file_name or index.",
 )
-def list_available_outputs_files_short_range_tool(
+def resolve_output_file_tool(
     model: Annotated[MODELS, Field(description="Model id")] = "cfe_nom",
-    date: Annotated[
-        Optional[str],
-        Field(
-            description="YYYY-MM-DD or YYYY/MM/DD",
-            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
-        ),
-    ] = None,
-    cycle: Annotated[SHORT_RANGE_CYCLES, Field(description="Hourly cycle for short_range (00-23)")] = "00",
-    vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_6",
+    date: Annotated[Optional[str], Field(description="YYYY-MM-DD or YYYY/MM/DD", pattern=DATE_PATTERN)] = None,
+    forecast: Annotated[FORECASTS, Field(description="Forecast id")] = "short_range",
+    cycle: Annotated[str, Field(description="Cycle", pattern=r"^(?:[01]\d|2[0-3])$")] = "00",
+    vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_06",
+    ensemble: Annotated[Optional[str], Field(description="Ensemble (medium_range)", pattern=r"^\d+$")] = None,
+    file_name: Annotated[Optional[str], Field(description="Exact filename (e.g. troute_output_...parquet)")] = None,
+    index: Annotated[Optional[int], Field(description="0-based index into sorted file list", ge=0)] = None,
 ) -> Dict[str, Any]:
     end_date = _parse_date_or_today(date, "date")
     params: Dict[str, Any] = {
         "model": model,
         "date": end_date,
-        "forecast": "short_range",
+        "forecast": _as_id(forecast),
         "cycle": cycle,
         "vpu": _as_id(vpu),
     }
-    return _get_json_raw("list_available_outputs_files", params=params)
+    if ensemble is not None:
+        params["ensemble"] = ensemble
+    if file_name is not None:
+        params["file_name"] = file_name
+    if index is not None:
+        params["index"] = index
+
+    return _get_json_raw("get_output_file", params=params)
+
+# @mcp.tool(
+#     name="list_available_outputs_files_short_range",
+#     description="List available output files for short_range (hourly) forecast. cycle must be 00-23.",
+# )
+# def list_available_outputs_files_short_range_tool(
+#     model: Annotated[MODELS, Field(description="Model id")] = "cfe_nom",
+#     date: Annotated[
+#         Optional[str],
+#         Field(
+#             description="YYYY-MM-DD or YYYY/MM/DD",
+#             pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+#         ),
+#     ] = None,
+#     cycle: Annotated[SHORT_RANGE_CYCLES, Field(description="Hourly cycle for short_range (00-23)")] = "00",
+#     vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_6",
+# ) -> Dict[str, Any]:
+#     end_date = _parse_date_or_today(date, "date")
+#     params: Dict[str, Any] = {
+#         "model": model,
+#         "date": end_date,
+#         "forecast": "short_range",
+#         "cycle": cycle,
+#         "vpu": _as_id(vpu),
+#     }
+#     return _get_json_raw("list_available_outputs_files", params=params)
 
 
-@mcp.tool(
-    name="list_available_outputs_files_medium_range",
-    description="List available output files for medium_range (6-hourly) forecast. cycle must be 00/06/12/18. Uses ensemble=1 (first member).",
-)
-def list_available_outputs_files_medium_range_tool(
-    model: Annotated[MODELS, Field(description="Model id")] = "cfe_nom",
-    date: Annotated[
-        Optional[str],
-        Field(
-            description="YYYY-MM-DD or YYYY/MM/DD",
-            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
-        ),
-    ] = None,
-    cycle: Annotated[MEDIUM_RANGE_CYCLES, Field(description="6-hourly cycle for medium_range (00/06/12/18)")] = "00",
-    vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_6",
-) -> Dict[str, Any]:
-    end_date = _parse_date_or_today(date, "date")
-    params: Dict[str, Any] = {
-        "model": model,
-        "date": end_date,
-        "forecast": "medium_range",
-        "cycle": cycle,
-        "vpu": _as_id(vpu),
-    }
-    return _get_json_raw("list_available_outputs_files", params=params)
+# @mcp.tool(
+#     name="list_available_outputs_files_medium_range",
+#     description="List available output files for medium_range (6-hourly) forecast. cycle must be 00/06/12/18. Uses ensemble=1 (first member).",
+# )
+# def list_available_outputs_files_medium_range_tool(
+#     model: Annotated[MODELS, Field(description="Model id")] = "cfe_nom",
+#     date: Annotated[
+#         Optional[str],
+#         Field(
+#             description="YYYY-MM-DD or YYYY/MM/DD",
+#             pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+#         ),
+#     ] = None,
+#     cycle: Annotated[MEDIUM_RANGE_CYCLES, Field(description="6-hourly cycle for medium_range (00/06/12/18)")] = "00",
+#     vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_6",
+# ) -> Dict[str, Any]:
+#     end_date = _parse_date_or_today(date, "date")
+#     params: Dict[str, Any] = {
+#         "model": model,
+#         "date": end_date,
+#         "forecast": "medium_range",
+#         "cycle": cycle,
+#         "vpu": _as_id(vpu),
+#     }
+#     return _get_json_raw("list_available_outputs_files", params=params)
 
 
-@mcp.tool(
-    name="list_available_outputs_files_analysis_assim_extend",
-    description="List available output files for analysis_assim_extend forecast. cycle is always 16.",
-)
-def list_available_outputs_files_analysis_assim_extend_tool(
-    model: Annotated[MODELS, Field(description="Model id")] = "cfe_nom",
-    date: Annotated[
-        Optional[str],
-        Field(
-            description="YYYY-MM-DD or YYYY/MM/DD",
-            pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
-        ),
-    ] = None,
-    cycle: Annotated[
-        ANALYSIS_ASSIM_EXTEND_CYCLES, Field(description="Only valid cycle for analysis_assim_extend is 16")
-    ] = "16",
-    vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_6",
-) -> Dict[str, Any]:
-    end_date = _parse_date_or_today(date, "date")
-    params: Dict[str, Any] = {
-        "model": model,
-        "date": end_date,
-        "forecast": "analysis_assim_extend",
-        "cycle": cycle,
-        "vpu": _as_id(vpu),
-    }
-    return _get_json_raw("list_available_outputs_files", params=params)
+# @mcp.tool(
+#     name="list_available_outputs_files_analysis_assim_extend",
+#     description="List available output files for analysis_assim_extend forecast. cycle is always 16.",
+# )
+# def list_available_outputs_files_analysis_assim_extend_tool(
+#     model: Annotated[MODELS, Field(description="Model id")] = "cfe_nom",
+#     date: Annotated[
+#         Optional[str],
+#         Field(
+#             description="YYYY-MM-DD or YYYY/MM/DD",
+#             pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$",
+#         ),
+#     ] = None,
+#     cycle: Annotated[
+#         ANALYSIS_ASSIM_EXTEND_CYCLES, Field(description="Only valid cycle for analysis_assim_extend is 16")
+#     ] = "16",
+#     vpu: Annotated[VPUS, Field(description="VPU id")] = "VPU_6",
+# ) -> Dict[str, Any]:
+#     end_date = _parse_date_or_today(date, "date")
+#     params: Dict[str, Any] = {
+#         "model": model,
+#         "date": end_date,
+#         "forecast": "analysis_assim_extend",
+#         "cycle": cycle,
+#         "vpu": _as_id(vpu),
+#     }
+#     return _get_json_raw("list_available_outputs_files", params=params)
 
 @mcp.tool(
     name="read_parquet_output_file",
@@ -403,52 +433,6 @@ def query_parquet_output_file_tool(
 ) -> Dict[str, Any]:
     return _get_json_raw("query_parquet_output_file", params={"s3_url": s3_url, "query": query})
 
-# @mcp.tool(
-#     name="query_parquet_output_file_timeseries",
-#     description=(
-#         "Run a SQL query against parquet outputs using DuckDB. "
-#         "Provide ONE s3_url (optionally a wildcard/pattern if supported by backend) and a SQL query. "
-#         "SQL MUST read FROM output."
-#     ),
-# )
-# def query_parquet_output_file_timeseries_tool(
-#     s3_url: Annotated[
-#         str,
-#         Field(
-#             description="Full parquet URL or pattern (s3://... or https://...)",
-#             pattern=r"^(?:https://|s3://).+\.parquet$",
-#         ),
-#     ],
-#     query: Annotated[
-#         str,
-#         Field(
-#             description="DuckDB SQL query (read-only). Must start with SELECT or WITH. Must read FROM output.",
-#             pattern=r"(?is)^\s*(?:WITH\b.*?\bSELECT\b|SELECT\b).*$",
-#         ),
-#     ],
-#     feature_id: Annotated[Optional[str], Field(description="Optional feature id", pattern=r"^\w+$")] = None,
-#     type: Annotated[Optional[str], Field(description="Optional type", pattern=r"^\w+$")] = None,
-#     start: Annotated[Optional[str], Field(description="Optional start date", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
-#     end: Annotated[Optional[str], Field(description="Optional end date", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
-#     variables: Annotated[Optional[str], Field(description="Optional variables list", pattern=r"^\w+(,\w+)*$")] = None,
-#     limit: Annotated[Optional[int], Field(description="Optional limit", ge=1)] = None,
-# ) -> Dict[str, Any]:
-#     params: Dict[str, Any] = {"s3_url": s3_url, "query": query}
-#     if feature_id is not None:
-#         params["feature_id"] = feature_id
-#     if type is not None:
-#         params["type"] = type
-#     if start is not None:
-#         params["start"] = start
-#     if end is not None:
-#         params["end"] = end
-#     if variables is not None:
-#         params["variables"] = variables
-#     if limit is not None:
-#         params["limit"] = limit
-
-#     return _get_json_raw("query_parquet_output_file_timeseries", params=params)
-
 @mcp.tool(
     name="query_netcdf_output_file",
     description=(
@@ -474,52 +458,6 @@ def query_netcdf_output_file_tool(
     ],
 ) -> Dict[str, Any]:
     return _get_json_raw("query_netcdf_output_file", params={"s3_url": s3_url, "query": query})
-
-# @mcp.tool(
-#     name="query_netcdf_output_file_timeseries",
-#     description=(
-#         "Run a SQL query against netcdf outputs using DuckDB. "
-#         "Provide ONE s3_url (optionally a wildcard/pattern if supported by backend) and a SQL query. "
-#         "SQL MUST read FROM output."
-#     ),
-# )
-# def query_netcdf_output_file_timeseries_tool(
-#     s3_url: Annotated[
-#         str,
-#         Field(
-#             description="Full netcdf URL or pattern (s3://... or https://...)",
-#             pattern=r"^(?:https://|s3://).+\.nc$",
-#         ),
-#     ],
-#     query: Annotated[
-#         str,
-#         Field(
-#             description="DuckDB SQL query (read-only). Must start with SELECT or WITH. Must read FROM output.",
-#             pattern=r"(?is)^\s*(?:WITH\b.*?\bSELECT\b|SELECT\b).*$",
-#         ),
-#     ],
-#     feature_id: Annotated[Optional[str], Field(description="Optional feature id", pattern=r"^\w+$")] = None,
-#     type: Annotated[Optional[str], Field(description="Optional type", pattern=r"^\w+$")] = None,
-#     start: Annotated[Optional[str], Field(description="Optional start date", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
-#     end: Annotated[Optional[str], Field(description="Optional end date", pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}/\d{2}/\d{2})$")] = None,
-#     variables: Annotated[Optional[str], Field(description="Optional variables list", pattern=r"^\w+(,\w+)*$")] = None,
-#     limit: Annotated[Optional[int], Field(description="Optional limit", ge=1)] = None,
-# ) -> Dict[str, Any]:
-#     params: Dict[str, Any] = {"s3_url": s3_url, "query": query}
-#     if feature_id is not None:
-#         params["feature_id"] = feature_id
-#     if type is not None:
-#         params["type"] = type
-#     if start is not None:
-#         params["start"] = start
-#     if end is not None:
-#         params["end"] = end
-#     if variables is not None:
-#         params["variables"] = variables
-#     if limit is not None:
-#         params["limit"] = limit
-
-#     return _get_json_raw("query_netcdf_output_file_timeseries", params=params)
 
 
 if __name__ == "__main__":

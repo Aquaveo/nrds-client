@@ -13,6 +13,7 @@ ENDPOINTS = {
     "list_available_cycles": "list-available-cycles",
     "list_available_vpus": "list-available-vpus",
     "list_available_outputs_files": "list-available-outputs-files",
+    "get_output_file": "get-output-file",
     "read_netcdf_output_file": "read-output-netcdf-file",
     "read_parquet_output_file": "read-output-parquet-file",
     "query_parquet_output_file": "query-output-parquet-file",

@@ -1,3 +1,6 @@
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
 ## This are some of the messages that we need to use for the client
 DATA_SCHEMA = """(
   time TIMESTAMP_NS,
@@ -22,6 +25,9 @@ SYSTEM_MSG = {
         "6) For optional parameters: OMIT the key entirely if you don't have a value. Never pass null/None/''.\n\n"
         "7) If needed, call multiple tools as a chain (multi-step).\n"
         "8) If an argument is not available, call a tool that can retrieve valid values for that argument, then use the returned value in the next tool call.\n\n"
+        "9) If the final response is an empty array/list, let the user know that there is no data for that request;\n\n"
+        "\n\nDate handling:\n"
+        f"- Today is {datetime.now(ZoneInfo('America/Denver')).date().isoformat()} (America/Denver).\n"        
         "Query tools (DuckDB):\n"
         "- For Parquet: use query_parquet_output_file (args: s3_url, query). Do NOT use s3_url/type/args.\n"
         "- For NetCDF: use query_netcdf_output_file (args: s3_url, query). Do NOT use s3_url/type/args.\n"
