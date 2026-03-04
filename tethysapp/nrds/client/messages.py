@@ -32,6 +32,7 @@ SYSTEM_MSG = {
         "- For Parquet: use query_parquet_output_file (args: s3_url, query). Do NOT use s3_url/type/args.\n"
         "- For NetCDF: use query_netcdf_output_file (args: s3_url, query). Do NOT use s3_url/type/args.\n"
         "- SQL queries MUST read FROM output. Never use read_parquet(...) or read_netcdf(...).\n"
+        "- For variable requests, select the variable as a column (e.g., SELECT time, feature_id, flow FROM output ...).\n"
         "- Example for feature ids: SELECT DISTINCT feature_id FROM output;\n\n"
         "Data schema for SQL generation:\n"
         f"{DATA_SCHEMA}\n"
@@ -46,6 +47,7 @@ DUCKDB_SQL_SYSTEM_MSG = {
         f"{DATA_SCHEMA}\n"
         "Rules:\n"
         "- Always query FROM output (never use read_parquet(...) or read_netcdf(...)).\n"
+        "- For variables, use actual columns (flow, velocity, depth, nudge), not a column='name' predicate.\n"
         "- Return ONLY a single SQL query (no prose, no JSON, no markdown).\n"
         "Example for feature ids: SELECT DISTINCT feature_id FROM output;\n"
     )
@@ -59,6 +61,7 @@ AUTO_FIX_SYSTEM_MSG = (
     "- For Parquet: query_parquet_output_file args=(s3_url, query).\n"
     "- Do NOT use s3_url/type/args.\n"
     "- SQL MUST query FROM output (never read_parquet/read_netcdf).\n"
+    "- For variables, select columns directly (flow/velocity/depth/nudge). For example, do NOT use column='flow'.\n"
     "- For distinct feature ids: SELECT DISTINCT feature_id FROM output;\n"
     "Now: return a real tool_call with correct args.\n"
 )

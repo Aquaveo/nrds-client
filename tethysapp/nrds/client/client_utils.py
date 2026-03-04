@@ -80,7 +80,11 @@ def _is_plausible_outputs_file(u: str) -> bool:
     if not isinstance(u, str):
         return False
     ul = u.lower()
-    return (ul.startswith(("s3://", "https://")) and "/outputs/" in ul and ul.endswith(".parquet") or ul.endswith(".nc"))
+    return (
+        ul.startswith(("s3://", "https://"))
+        and "/outputs/" in ul
+        and ul.endswith((".parquet", ".nc", ".nc4"))
+    )
 
 def _parse_forecast(user_text: str) -> str:
     t = user_text.lower()
@@ -186,6 +190,50 @@ def _extract_resolved_path(resolve_payload) -> str | None:
     return None
 
 
+def _last_tool_file_url(messages, exts=(".parquet", ".nc", ".nc4")) -> str | None:
+    def _valid_url(url: str) -> bool:
+        if not isinstance(url, str):
+            return False
+        ul = url.lower()
+        return ul.startswith(("s3://", "https://")) and ul.endswith(exts)
+
+    def _from_payload(payload) -> str | None:
+        if isinstance(payload, dict):
+            for key in ("file", "path"):
+                v = payload.get(key)
+                if isinstance(v, str) and _valid_url(v):
+                    return v
+            selected = payload.get("selected")
+            if isinstance(selected, dict):
+                v = selected.get("path")
+                if isinstance(v, str) and _valid_url(v):
+                    return v
+            for list_key in ("files", "items"):
+                values = payload.get(list_key)
+                if isinstance(values, list):
+                    for item in values:
+                        if isinstance(item, dict):
+                            v = item.get("path")
+                            if isinstance(v, str) and _valid_url(v):
+                                return v
+        return None
+
+    for m in reversed(messages):
+        if not isinstance(m, dict) or m.get("role") != "tool":
+            continue
+        content = m.get("content")
+        payload = content
+        if isinstance(content, str):
+            try:
+                payload = json.loads(content)
+            except Exception:
+                payload = None
+        found = _from_payload(payload)
+        if found:
+            return found
+    return None
+
+
 def _maybe_join_dir_and_filename(s3_url: str, query: str) -> str:
     """
     If the model put a directory in s3_url and a filename in the SQL,
@@ -201,41 +249,81 @@ def _maybe_join_dir_and_filename(s3_url: str, query: str) -> str:
             return s3_url.rstrip("/") + "/" + m.group(1)
     return s3_url
 
-def _rewrite_from_to_full_s3_path(query: str, s3_url: str) -> str:
+def _rewrite_from_to_output(query: str) -> str:
     """
-    Rewrite:
-      SELECT ... FROM troute_output_....parquet
-    into:
-      SELECT ... FROM 's3://.../troute_output_....parquet'
-    Uses the tool arg s3_url as the canonical path.
+    Rewrite SQL that points FROM a file path back to FROM output.
+    The backend creates a temp view named output for file queries.
     """
     if not isinstance(query, str) or not query.strip():
-        return query
-    if not isinstance(s3_url, str) or not s3_url.strip():
-        return query
-
-    # If the query already contains the full s3_url, leave it
-    if s3_url in query:
         return query
 
     m = _FROM_TARGET_RE.search(query)
     if not m:
         return query
 
-    target = m.group(1).strip()
+    target = m.group(1).strip().rstrip(",")
+    target_unquoted = target.strip("'\"`")
 
     # Don't touch function calls like read_parquet(...)
     if target.lower().startswith(("read_parquet", "parquet_scan", "read_csv", "read_json")):
         return query
 
-    # Replace if it's clearly not a full path (bare filename or "output")
-    is_bare_file = target.lower().endswith(".parquet") and "://" not in target and "/" not in target
-    is_output = target.lower() == "output"
+    if target_unquoted.lower() == "output":
+        return query
 
-    if is_bare_file or is_output:
-        return _FROM_TARGET_RE.sub(f"FROM '{s3_url}'", query, count=1)
+    if "://" in target_unquoted or target_unquoted.lower().endswith((".parquet", ".nc", ".nc4")):
+        return _FROM_TARGET_RE.sub("FROM output", query, count=1)
 
     return query
+
+
+def _is_invalid_timeseries_query(query: str | None) -> bool:
+    if not isinstance(query, str) or not query.strip():
+        return True
+    q = query.strip()
+    ql = q.lower()
+
+    # Hallucinated schema pattern (column = "flow") is invalid for this dataset.
+    if re.search(r"\bcolumn\s*=", ql):
+        return True
+
+    # Backend expects SQL to read from temp view `output`.
+    if any(fn in ql for fn in ("read_parquet(", "read_netcdf(", "parquet_scan(")):
+        return True
+
+    m = _FROM_TARGET_RE.search(q)
+    if not m:
+        return True
+    target = m.group(1).strip().rstrip(",").strip("'\"`").lower()
+    return target != "output"
+
+
+def _timeseries_sql_from_user_text(user_text: str, current_query: str | None = None) -> str | None:
+    t = (user_text or "").lower()
+    if "time series" not in t and "timeseries" not in t:
+        return None
+
+    m = re.search(r"\b(flow|velocity|depth|nudge)\b", t)
+    if not m:
+        return None
+    var = m.group(1)
+
+    # Only provide deterministic fallback when model SQL is clearly invalid.
+    if not _is_invalid_timeseries_query(current_query):
+        return None
+
+    feature_match = re.search(r"\bfeature[_\s-]*id\s*(?:=|is|:)?\s*(\d+)\b", t)
+    if feature_match:
+        fid = feature_match.group(1)
+        return (
+            f"SELECT time, feature_id, {var} FROM output "
+            f"WHERE feature_id = {fid} AND {var} IS NOT NULL "
+            "ORDER BY time LIMIT 5000;"
+        )
+    return (
+        f"SELECT time, feature_id, {var} FROM output "
+        f"WHERE {var} IS NOT NULL ORDER BY time, feature_id LIMIT 5000;"
+    )
 
 def extract_file_url(text: str) -> Optional[str]:
     m = URL_RE.search(text or "")

@@ -15,11 +15,13 @@ from .client_utils import (
     generate_auto_fix_tool_msg,
     generate_file_msg,
     generate_duckdb_role_msg,
-    _rewrite_from_to_full_s3_path,
+    _rewrite_from_to_output,
     _maybe_join_dir_and_filename,
     _parse_resolve_args,
     _is_plausible_outputs_file,
     _extract_resolved_path,
+    _last_tool_file_url,
+    _timeseries_sql_from_user_text,
     _last_user_text,
     _get_message,
 )
@@ -113,7 +115,31 @@ async def process_tool_calls(tool_calls, messages):
                     if resolved_path:
                         args["s3_url"] = resolved_path
 
-        # --- Minimal fix: ensure query uses full file path in FROM (if your backend expects file path in SQL) ---
+        # For follow-up prompts, recover the last concrete file URL from tool history.
+        if tool_name in {"query_parquet_output_file", "query_netcdf_output_file"}:
+            current_s3 = args.get("s3_url", "")
+            if not _is_plausible_outputs_file(current_s3):
+                fallback = None
+                if tool_name == "query_parquet_output_file":
+                    fallback = _last_tool_file_url(messages, exts=(".parquet",))
+                else:
+                    fallback = _last_tool_file_url(messages, exts=(".nc", ".nc4"))
+                    if not fallback:
+                        parquet_fallback = _last_tool_file_url(messages, exts=(".parquet",))
+                        if parquet_fallback:
+                            print("🔁 Switching tool: query_netcdf_output_file → query_parquet_output_file")
+                            tool_name = "query_parquet_output_file"
+                            fallback = parquet_fallback
+                if fallback:
+                    print(f"🔁 Reusing last output file URL: {fallback}")
+                    args["s3_url"] = fallback
+
+        # --- SQL normalization for query tools ---
+        if tool_name in {"query_parquet_output_file", "query_netcdf_output_file"}:
+            q = args.get("query")
+            if isinstance(q, str):
+                args["query"] = _rewrite_from_to_output(q)
+
         if tool_name == "query_parquet_output_file":
             s3_url = args.get("s3_url")
             q = args.get("query")
@@ -123,8 +149,13 @@ async def process_tool_calls(tool_calls, messages):
                 fixed_s3 = _maybe_join_dir_and_filename(s3_url, q)
                 args["s3_url"] = fixed_s3
 
-                # rewrite FROM <filename/output> -> FROM '<full_s3_path>'
-                args["query"] = _rewrite_from_to_full_s3_path(q, fixed_s3)
+                # SQL should read from temp view 'output' for this backend.
+                args["query"] = _rewrite_from_to_output(q)
+
+            ts_sql = _timeseries_sql_from_user_text(user_text, args.get("query"))
+            if ts_sql:
+                print("🔁 Rewriting SQL for time-series request")
+                args["query"] = ts_sql
 
         print(f"🔧 Tool requested: {tool_name}")
         print(f"📝 Arguments: {args}")
