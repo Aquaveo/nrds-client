@@ -65,6 +65,31 @@ def _print_context_usage(resp: dict, model_name: str):
 
 
 def _compact_tool_result_for_context(tool_result, max_items: int = MAX_TOOL_ITEMS_IN_CONTEXT):
+    def _first_path(payload) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+
+        selected = payload.get("selected")
+        if isinstance(selected, dict):
+            p = selected.get("path")
+            if isinstance(p, str) and p:
+                return p
+
+        for key in ("file", "path"):
+            p = payload.get(key)
+            if isinstance(p, str) and p:
+                return p
+
+        for list_key in ("files", "items"):
+            values = payload.get(list_key)
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, dict):
+                        p = item.get("path")
+                        if isinstance(p, str) and p:
+                            return p
+        return None
+
     if isinstance(tool_result, dict):
         compact = dict(tool_result)
 
@@ -79,14 +104,30 @@ def _compact_tool_result_for_context(tool_result, max_items: int = MAX_TOOL_ITEM
                 compact[key] = value[:max_items]
                 compact[f"{key}_truncated"] = True
                 compact[f"{key}_total"] = len(value)
+
+        # Preserve path signals that are important for multi-step chaining.
+        selected_path = _first_path(compact)
+        if selected_path:
+            compact["selected_path"] = selected_path
+            if "selected" not in compact:
+                compact["selected"] = {"path": selected_path}
+
+        files = compact.get("files")
+        if isinstance(files, list):
+            compact.setdefault("files_total", len(files))
         return compact
 
     if isinstance(tool_result, list) and len(tool_result) > max_items:
-        return {
+        compact_list = {
             "items": tool_result[:max_items],
             "items_truncated": True,
             "items_total": len(tool_result),
         }
+        if compact_list["items"] and isinstance(compact_list["items"][0], dict):
+            p = compact_list["items"][0].get("path")
+            if isinstance(p, str) and p:
+                compact_list["selected_path"] = p
+                compact_list["selected"] = {"path": p}
+        return compact_list
 
     return tool_result
-

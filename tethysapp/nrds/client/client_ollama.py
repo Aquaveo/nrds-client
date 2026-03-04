@@ -9,21 +9,17 @@ from .client_utils import (
     extract_file_url,
     file_kind,
     extract_inline_tool_calls,
-    should_generate_sql,
-    generate_duckdb_sql,
     _normalize_query_tool_args,
     generate_auto_fix_tool_msg,
     generate_file_msg,
-    generate_duckdb_role_msg,
     _rewrite_from_to_output,
     _maybe_join_dir_and_filename,
-    _parse_resolve_args,
     _is_plausible_outputs_file,
-    _extract_resolved_path,
     _last_tool_file_url,
-    _last_user_text,
     _get_message,
 )
+import readline  # for better input experience (history, editing)
+from .terminal import setup_readline
 from .context import _print_context_usage, _compact_tool_result_for_context
 from .messages import SYSTEM_MSG
 
@@ -74,9 +70,53 @@ async def execute_tool(tool_name: str, arguments: dict):
     except Exception as e:
         return {"error": str(e)}
 
+
+def _tool_call_signature(tool_name: str, args: dict) -> str:
+    try:
+        args_blob = json.dumps(args, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        args_blob = str(args)
+    return f"{tool_name}|{args_blob}"
+
+
+def _tool_error_text(tool_result) -> str | None:
+    if isinstance(tool_result, dict):
+        err = tool_result.get("error")
+        if err:
+            return str(err)
+
+    if isinstance(tool_result, str):
+        low = tool_result.lower()
+        if any(
+            token in low
+            for token in (
+                "validation error",
+                "error calling tool",
+                "unknown tool",
+                "httperror",
+                "traceback",
+                "server error",
+                "failed",
+            )
+        ):
+            return tool_result
+
+    return None
+
+
+def _bump_failed_signature_counts(counts: dict[str, int], signatures: list[str]) -> str | None:
+    repeated = None
+    for sig in signatures:
+        counts[sig] = counts.get(sig, 0) + 1
+        if counts[sig] >= 2:
+            repeated = sig
+    return repeated
+
+
 async def process_tool_calls(tool_calls, messages):
     had_error = False
     last_err = None
+    failed_signatures: list[str] = []
 
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
@@ -97,22 +137,6 @@ async def process_tool_calls(tool_calls, messages):
                 tool_name = "query_parquet_output_file"
             if s3_url.lower().endswith((".nc", ".nc4")) and tool_name == "query_parquet_output_file":
                 tool_name = "query_netcdf_output_file"
-
-        # --- Auto-chain: resolve_output_file -> query_parquet_output_file when user requests ordinal output file ---
-        user_text = _last_user_text(messages)
-        ut = user_text.lower()
-
-        if tool_name == "query_parquet_output_file" and ("output file" in ut):
-            # If model didn't provide a plausible full outputs parquet path, resolve it deterministically
-            current_s3 = args.get("s3_url", "")
-            if not _is_plausible_outputs_file(current_s3):
-                resolve_args = _parse_resolve_args(user_text)
-                if resolve_args:
-                    print("🔁 Auto-chaining: resolve_output_file → query_parquet_output_file")
-                    resolved = await execute_tool("resolve_output_file", resolve_args)
-                    resolved_path = _extract_resolved_path(resolved)
-                    if resolved_path:
-                        args["s3_url"] = resolved_path
 
         # For follow-up prompts, recover the last concrete file URL from tool history.
         if tool_name in {"query_parquet_output_file", "query_netcdf_output_file"}:
@@ -145,6 +169,7 @@ async def process_tool_calls(tool_calls, messages):
                 # SQL should read from temp view 'output' for this backend.
                 args["query"] = _rewrite_from_to_output(q)
 
+        call_signature = _tool_call_signature(tool_name, args if isinstance(args, dict) else {"_raw": args})
         print(f"🔧 Tool requested: {tool_name}")
         print(f"📝 Arguments: {args}")
 
@@ -164,14 +189,17 @@ async def process_tool_calls(tool_calls, messages):
 
         print(f"🔄 Updated messages with tool result. Total messages: {len(messages)}")
 
-        if isinstance(tool_result, dict) and tool_result.get("error"):
+        err_text = _tool_error_text(tool_result)
+        if err_text:
             had_error = True
-            last_err = str(tool_result["error"])
+            last_err = err_text
+            failed_signatures.append(call_signature)
 
-    return had_error, last_err
+    return had_error, last_err, failed_signatures
 
 
 async def main():
+    setup_readline()
     print("🔍 Loading MCP tools...")
     try:
         tools = await load_mcp_tools()
@@ -195,6 +223,7 @@ async def main():
             break
 
         messages.append({"role": "user", "content": user_msg})
+        failed_sig_counts: dict[str, int] = {}
 
         file_url = extract_file_url(user_msg)
         kind = file_kind(file_url or "")
@@ -203,17 +232,6 @@ async def main():
         if file_url:
             msg = generate_file_msg(file_url, kind)
             messages.append(msg)
-        # Generate SQL if it looks like a SQL request OR if the user gave a data file URL
-        if should_generate_sql(messages) or (file_url and kind in {"parquet", "netcdf"}):
-            try:
-                sql = generate_duckdb_sql(user_msg)
-            except Exception as e:
-                sql = ""
-                print(f"⚠️ SQL model failed: {e}")
-
-            if sql:
-                msg = generate_duckdb_role_msg(sql)
-                messages.append(msg)
 
         while True:
             try:
@@ -248,14 +266,32 @@ async def main():
                 msg["tool_calls"] = tool_calls
             messages.append(msg)
 
-            had_error, last_err = await process_tool_calls(tool_calls, messages)
+            had_error, last_err, failed_signatures = await process_tool_calls(tool_calls, messages)
 
             if had_error and last_err:
+                repeated_signature = _bump_failed_signature_counts(failed_sig_counts, failed_signatures)
+
+                if MAX_TOOL_REPAIR_ATTEMPTS <= 0 and repeated_signature:
+                    messages.append(
+                        generate_auto_fix_tool_msg(
+                            last_err,
+                            prior_user_text=user_msg,
+                            repeated_signature=repeated_signature,
+                        )
+                    )
+                    continue
+
                 for attempt in range(1, MAX_TOOL_REPAIR_ATTEMPTS + 1):
                     print(f"⚠️ Tool call had error: {last_err}")
                     print(f"🔧 Attempting auto-repair {attempt}/{MAX_TOOL_REPAIR_ATTEMPTS}")
 
-                    messages.append(generate_auto_fix_tool_msg(last_err))
+                    messages.append(
+                        generate_auto_fix_tool_msg(
+                            last_err,
+                            prior_user_text=user_msg,
+                            repeated_signature=repeated_signature,
+                        )
+                    )
 
                     try:
                         repair_resp = ollama.chat(
@@ -285,7 +321,8 @@ async def main():
                         repair_msg["tool_calls"] = repair_calls
                     messages.append(repair_msg)
 
-                    had_error, last_err = await process_tool_calls(repair_calls, messages)
+                    had_error, last_err, failed_signatures = await process_tool_calls(repair_calls, messages)
+                    repeated_signature = _bump_failed_signature_counts(failed_sig_counts, failed_signatures)
 
                     if not had_error:
                         break
