@@ -1,6 +1,7 @@
 import urllib.request
 import urllib.error
 import os
+import json
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 

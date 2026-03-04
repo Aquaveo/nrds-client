@@ -18,7 +18,7 @@ from .client_utils import (
     _rewrite_from_to_full_s3_path,
     _maybe_join_dir_and_filename,
     _parse_resolve_args,
-    _is_plausible_outputs_parquet,
+    _is_plausible_outputs_file,
     _extract_resolved_path,
     _last_user_text,
     _get_message,
@@ -103,28 +103,14 @@ async def process_tool_calls(tool_calls, messages):
         if tool_name == "query_parquet_output_file" and ("output file" in ut):
             # If model didn't provide a plausible full outputs parquet path, resolve it deterministically
             current_s3 = args.get("s3_url", "")
-            if not _is_plausible_outputs_parquet(current_s3):
+            if not _is_plausible_outputs_file(current_s3):
                 resolve_args = _parse_resolve_args(user_text)
                 if resolve_args:
                     print("🔁 Auto-chaining: resolve_output_file → query_parquet_output_file")
                     resolved = await execute_tool("resolve_output_file", resolve_args)
-
-                    # record resolve result in conversation
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_name": "resolve_output_file",
-                            "content": json.dumps(resolved) if isinstance(resolved, (dict, list)) else str(resolved),
-                        }
-                    )
-
                     resolved_path = _extract_resolved_path(resolved)
                     if resolved_path:
                         args["s3_url"] = resolved_path
-
-            # If user asked for feature ids, ensure we have the correct query pattern
-            if "feature id" in ut or "feature_id" in ut:
-                args["query"] = "SELECT DISTINCT feature_id FROM output;"
 
         # --- Minimal fix: ensure query uses full file path in FROM (if your backend expects file path in SQL) ---
         if tool_name == "query_parquet_output_file":

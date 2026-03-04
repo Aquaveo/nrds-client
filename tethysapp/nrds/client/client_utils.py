@@ -1,9 +1,17 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, get_args
 import re
 import json
 import ollama
 import os
 from .messages import DUCKDB_SQL_SYSTEM_MSG, AUTO_FIX_SYSTEM_MSG, FILE_MSG, DUCK_DB_ROLE_MSG
+from ..mcp.validations import (
+    FORECASTS,
+    VPUS,
+    MODELS,
+    MEDIUM_RANGE_CYCLES,
+    SHORT_RANGE_CYCLES,
+    ANALYSIS_ASSIM_EXTEND_CYCLES,
+)
 
 
 # SQL-only model (does NOT support tools); used only to generate SQL text.
@@ -14,11 +22,12 @@ SQL_HINTS = (
     # parquet
     "parquet", "read_parquet",
     "query-output-parquet", "query_output_parquet", "query_parquet_output",
-    "query-output-parquet-timeseries", "query_output_parquet_timeseries",
+    # "query-output-parquet-timeseries", "query_output_parquet_timeseries",
     # netcdf
     "netcdf", ".nc", ".nc4", "read_netcdf",
-    "query-output-netcdf-file", "query-output-netcdf-timeseries",
-    "query_netcdf_output_file", "query_netcdf_output_file_timeseries",
+    "query-output-netcdf-file", "query_netcdf_output_file",
+    # "query-output-netcdf-file", "query-output-netcdf-timeseries",
+    
     # general
     "duckdb", "sql", "select ", "with ",
 )
@@ -39,6 +48,11 @@ _ORDINALS = {
     "third": 2, "3rd": 2,
     "fourth": 3, "4th": 3,
     "fifth": 4, "5th": 4,
+    "sixth": 5, "6th": 5,
+    "seventh": 6, "7th": 6,
+    "eighth": 7, "8th": 7,
+    "ninth": 8, "9th": 8,
+    "tenth": 9, "10th": 9,
 }
 
 _DATE_RE = re.compile(r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b")
@@ -46,27 +60,26 @@ _CYCLE_RE = re.compile(r"\bcycle\s*([01]\d|2[0-3])\b", re.IGNORECASE)
 _VPU_RE = re.compile(r"\bvpu\s*([0-9]{1,2})\b", re.IGNORECASE)
 _MODEL_RE = re.compile(r"\bmodel\s+([a-z0-9_ ]+)\b", re.IGNORECASE)
 
+_VALID_FORECASTS = set(get_args(FORECASTS))
+_VALID_VPUS = set(get_args(VPUS))
+_VALID_MODELS = set(get_args(MODELS))
+_VALID_CYCLES_BY_FORECAST = {
+    "short_range": set(get_args(SHORT_RANGE_CYCLES)),
+    "medium_range": set(get_args(MEDIUM_RANGE_CYCLES)),
+    "analysis_assim_extend": set(get_args(ANALYSIS_ASSIM_EXTEND_CYCLES)),
+}
+
 def _last_user_text(messages) -> str:
     for m in reversed(messages):
         if m.get("role") == "user":
             return str(m.get("content") or "")
     return ""
-def _is_plausible_outputs_parquet(u: str) -> bool:
+
+def _is_plausible_outputs_file(u: str) -> bool:
     if not isinstance(u, str):
         return False
     ul = u.lower()
-    return (ul.startswith(("s3://", "https://")) and "/outputs/" in ul and ul.endswith(".parquet"))
-
-def _is_plausible_outputs_file_url(u: str, ext: str) -> bool:
-    if not isinstance(u, str):
-        return False
-    u2 = u.lower()
-    if not (u2.startswith("s3://") or u2.startswith("https://")):
-        return False
-    # your real paths live under /outputs/...
-    if "/outputs/" not in u2:
-        return False
-    return u2.endswith(ext)
+    return (ul.startswith(("s3://", "https://")) and "/outputs/" in ul and ul.endswith(".parquet") or ul.endswith(".nc"))
 
 def _parse_forecast(user_text: str) -> str:
     t = user_text.lower()
@@ -103,18 +116,23 @@ def _parse_resolve_args(user_text: str) -> dict | None:
         for stop in [" for ", " on ", " vpu", " cycle", " forecast", " today"]:
             model = model.split(stop)[0].strip()
         model = model.replace(" ", "_")
+        if model not in _VALID_MODELS:
+            model = None
 
     # cycle
     cycle = None
     m = _CYCLE_RE.search(t)
     if m:
-        cycle = m.group(1)
+        cycle = m.group(1).zfill(2)
 
     # vpu
     vpu = None
-    m = _VPU_RE.search(t)
+    m = re.search(r"\bvpu(?:[_\s-]*)(\d{1,2})([a-z]?)\b", t, re.IGNORECASE)
     if m:
-        vpu = f"VPU_{int(m.group(1)):02d}"
+        suffix = (m.group(2) or "").upper()
+        candidate = f"VPU_{int(m.group(1)):02d}{suffix}"
+        if candidate in _VALID_VPUS:
+            vpu = candidate
 
     # date
     date = None
@@ -125,8 +143,13 @@ def _parse_resolve_args(user_text: str) -> dict | None:
         date = None  # let server default
 
     forecast = _parse_forecast(t)
+    if forecast not in _VALID_FORECASTS:
+        return None
 
     if not model or not cycle or not vpu:
+        return None
+    valid_cycles = _VALID_CYCLES_BY_FORECAST.get(forecast, set())
+    if cycle not in valid_cycles:
         return None
 
     args = {
@@ -226,7 +249,7 @@ def file_kind(url: str) -> Optional[str]:
     u = url.lower()
     if u.endswith(".parquet"):
         return "parquet"
-    if u.endswith(".nc") or u.endswith(".nc4") or u.endswith(".netcdf"):
+    if u.endswith(".nc"):
         return "netcdf"
     return None
 
@@ -258,7 +281,7 @@ def generate_duckdb_sql(user_text: str) -> str:
         DUCKDB_SQL_SYSTEM_MSG,
         {"role": "user", "content": user_text},
     ]
-    resp = ollama.chat(model=OLLAMA_SQL_MODEL, messages=sql_messages, stream=False)
+    resp = ollama.chat(model=OLLAMA_SQL_MODEL, messages=sql_messages, stream=False, options={"temperature": 0.0})
     return (resp.get("message", {}).get("content") or "").strip()
 
 def extract_inline_tool_calls(text: str) -> List[Dict[str, Any]]:
@@ -299,18 +322,6 @@ def _normalize_query_tool_args(tool_name: str, args: Any) -> Any:
     # Tools we want to strictly sanitize
     query_tools = {"query_parquet_output_file", "query_netcdf_output_file"}
     read_tools = {"read_parquet_output_file", "read_netcdf_output_file"}
-
-    # ---- Fix common wrong key: s3_urls -> s3_url (and FIX the pop bug) ----
-    if "s3_url" not in args and "s3_urls" in args:
-        s = args.get("s3_urls")
-        url = None
-        if isinstance(s, str):
-            url = extract_file_url(s)
-        elif isinstance(s, list) and s:
-            url = str(s[0])
-        if url:
-            args["s3_url"] = url
-        args.pop("s3_urls", None)
 
     # ---- query tools: keep ONLY (s3_url, query), and try to repair folder+filename ----
     if tool_name in query_tools:
