@@ -71,7 +71,6 @@ def list_available_outputs_files(request) -> JsonResponse:
         # valid request, just no outputs at that path
         return JsonResponse({"path": s3_url, "files": []}, safe=False)
 
-
 @controller(url="api/get-output-file", login_required=False)
 @api_view(["GET"])
 def get_output_file(request) -> JsonResponse:
@@ -134,7 +133,6 @@ def get_output_file(request) -> JsonResponse:
 
     except FileNotFoundError:
         return JsonResponse({"dir": s3_dir, "count": 0, "selected": None}, safe=True)
-
 
 @controller(url="api/list-available-vpus", login_required=False)
 @api_view(["GET"])
@@ -202,7 +200,6 @@ def list_available_cycles(request) -> JsonResponse:
             },
             safe=False,
         )
-
 
 @controller(url="api/list-available-forecasts", login_required=False)
 @api_view(["GET"])
