@@ -91,7 +91,7 @@ export function getNCFiles(prefix) {
 }
 
 export const makeGpkgUrl = (vpu) => {
-    const vpu_gpkg = `s3://ciroh-community-ngen-datastream/v2.2_resources/${vpu}/config/nextgen_${vpu}.gpkg`;
+    const vpu_gpkg = `s3://ciroh-community-ngen-datastream/resources/v2.2_hydrofabric/geopackages/${vpu}/nextgen_${vpu}.gpkg`;
     return vpu_gpkg;
 }
 

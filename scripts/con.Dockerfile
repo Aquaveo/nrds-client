@@ -17,7 +17,7 @@ COPY nc2parquet/ /app/
 
 # Default environment variables (can be overridden with -e at runtime)
 ENV S3_NC_URL="s3://ciroh-community-ngen-datastream/v2.2/ngen.20251119/short_range/16/VPU_16/ngen-run/outputs/troute/troute_output_202511191700.nc"
-ENV S3_GPKG_URL="s3://ciroh-community-ngen-datastream/v2.2_resources/VPU_16/config/nextgen_VPU_16.gpkg"
+ENV S3_GPKG_URL="s3://ciroh-community-ngen-datastream/resources/v2.2_hydrofabric/geopackages/VPU_16/nextgen_VPU_16.gpkg"
 ENV OUTPUT_PATH="/data/output.parquet"
 
 # Ensure that /data exists (where OUTPUT_PATH points by default)

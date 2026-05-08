@@ -40,9 +40,9 @@ set -euo pipefail
 if [[ "$#" -lt 2 ]]; then
   echo "Usage: gpkg2pmtiles.sh <S3_PATH> <OUTPUT_PM_PATH>" >&2
   echo "Examples:" >&2
-  echo "  gpkg2pmtiles.sh s3://ciroh-community-ngen-datastream/v2.2_resources/VPU_01/config/nextgen_VPU_01.gpkg /data/nextgen_VPU_01.pmtiles" >&2
-  echo "  gpkg2pmtiles.sh ciroh-community-ngen-datastream/v2.2_resources/VPU_01/config/nextgen_VPU_01.gpkg /data/nextgen_VPU_01.pmtiles" >&2
-  echo "  gpkg2pmtiles.sh v2.2_resources/VPU_01/config/nextgen_VPU_01.gpkg /data/nextgen_VPU_01.pmtiles" >&2
+  echo "  gpkg2pmtiles.sh s3://ciroh-community-ngen-datastream/resources/v2.2_hydrofabric/geopackages/VPU_01/nextgen_VPU_01.gpkg /data/nextgen_VPU_01.pmtiles" >&2
+  echo "  gpkg2pmtiles.sh ciroh-community-ngen-datastream/resources/v2.2_hydrofabric/geopackages/VPU_01/nextgen_VPU_01.gpkg /data/nextgen_VPU_01.pmtiles" >&2
+  echo "  gpkg2pmtiles.sh resources/v2.2_hydrofabric/geopackages/VPU_01/nextgen_VPU_01.gpkg /data/nextgen_VPU_01.pmtiles" >&2
   exit 1
 fi
 
