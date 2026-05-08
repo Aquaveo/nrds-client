@@ -33,11 +33,11 @@ export const LayerInfoModal = (props) => {
           The community HydroFabric is a nationally consistent, high-resolution hydrologic fabric whose
           model inputs and outputs are being retrieved directly from the CIROH NextGen Datastream at{' '}
           <a
-            href="https://datastream.ciroh.org/index.html#v2.2_resources/"
+            href="https://datastream.ciroh.org/index.html#resources/v2.2_hydrofabric/geopackages/"
             target="_blank"
             rel="noreferrer"
           >
-            https://datastream.ciroh.org/index.html#v2.2_resources/
+            https://datastream.ciroh.org/index.html#resources/v2.2_hydrofabric/geopackages/
           </a>.
         </p>
         <p>

@@ -8,7 +8,7 @@ import useTimeSeriesStore from '../store/Timeseries';
 import { useCacheTablesStore } from '../store/CacheTables';
 import { useVPUStore, useFeatureStore } from '../store/Layers';
 import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
-import { initialS3Data, makePrefix, makeGpkgUrl } from 'features/DataStream/lib/s3Utils';
+import { initialS3Data, makePrefix } from 'features/DataStream/lib/s3Utils';
 import { getCacheKey } from 'features/DataStream/lib/opfsCache';
 import { checkForTable, 
   getTimeseries, 

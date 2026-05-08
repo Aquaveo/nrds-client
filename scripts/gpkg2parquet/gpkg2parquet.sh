@@ -4,10 +4,10 @@ set -euo pipefail
 if [[ "$#" -lt 2 ]]; then
   echo "Usage: gpkg2parquet.sh <S3_GPKG_1> [<S3_GPKG_2> ...] <OUTPUT_PARQUET_PATH>" >&2
   echo "Examples:" >&2
-  echo "  gpkg2parquet.sh s3://ciroh-community-ngen-datastream/v2.2_resources/VPU_01/config/nextgen_VPU_01.gpkg /data/nexus_index.parquet" >&2
+  echo "  gpkg2parquet.sh s3://ciroh-community-ngen-datastream/resources/v2.2_hydrofabric/geopackages/VPU_01/nextgen_VPU_01.gpkg /data/nexus_index.parquet" >&2
   echo "  gpkg2parquet.sh \\" >&2
-  echo "    v2.2_resources/VPU_01/config/nextgen_VPU_01.gpkg \\" >&2
-  echo "    v2.2_resources/VPU_02/config/nextgen_VPU_02.gpkg \\" >&2
+  echo "    resources/v2.2_hydrofabric/geopackages/VPU_01/nextgen_VPU_01.gpkg \\" >&2
+  echo "    resources/v2.2_hydrofabric/geopackages/VPU_02/nextgen_VPU_02.gpkg \\" >&2
   echo "    /data/nexus_divides_index.parquet" >&2
   exit 1
 fi
