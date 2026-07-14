@@ -49,7 +49,7 @@ jobs:
           # Google Analytics: only injected when the environment defines GA_TRACKING_ID
           GA_ARGS=()
           if [ -n "${{ vars.GA_TRACKING_ID }}" ]; then
-            GA_ARGS=(-e "DJANGO_ANALYTICAL={\"GOOGLE_ANALYTICS_GTAG_PROPERTY_ID\":\"${{ vars.GA_TRACKING_ID }}\"}")
+            GA_ARGS=(-e "GOOGLE_ANALYTICS_GTAG_PROPERTY_ID=${{ vars.GA_TRACKING_ID }}")
           fi
 
           docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
