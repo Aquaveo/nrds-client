@@ -46,6 +46,12 @@ jobs:
 
       - name: Replace container
         run: |
+          # Google Analytics: only injected when the environment defines GA_TRACKING_ID
+          GA_ARGS=()
+          if [ -n "${{ vars.GA_TRACKING_ID }}" ]; then
+            GA_ARGS=(-e "DJANGO_ANALYTICAL={\"GOOGLE_ANALYTICS_GTAG_PROPERTY_ID\":\"${{ vars.GA_TRACKING_ID }}\"}")
+          fi
+
           docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
           docker run -d \
             --name "$CONTAINER_NAME" \
@@ -55,6 +61,7 @@ jobs:
             -e SKIP_DB_SETUP=false \
             -e ALLOWED_HOSTS='${{ vars.ALLOWED_HOSTS }}' \
             -e CSRF_TRUSTED_ORIGINS='${{ vars.CSRF_TRUSTED_ORIGINS }}' \
+            "${GA_ARGS[@]}" \
             "$REGISTRY_IMAGE:${{ inputs.image_tag }}"
 
       - name: Health check
