@@ -17,6 +17,12 @@ import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
  * series loads, because it replaces the table they read, but a series load never invalidates a
  * vpu load. It defers to it instead.
  *
+ * Neither takes an AbortSignal, and unmounting cannot cancel work already in flight. That is
+ * sound only because DataStreamView is mounted for the life of the page: it holds the duckdb
+ * worker and tears it down on unmount, so there is no "unmounted but still running" state to
+ * protect against. Anything that makes the view unmountable mid-session needs a real signal
+ * threaded through both actions.
+ *
  * The load count is structure rather than a fix for anything observable today: a vpu load does
  * nothing after the series load it finishes with, so a boolean would look identical from the
  * outside. It is here so that stops being true silently. No test pins it, deliberately -- the

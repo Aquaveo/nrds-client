@@ -154,8 +154,7 @@ describe('a feature with no data', () => {
 
     await load({ featureId: 'wb-606' });
 
-    // The chart's own empty state cannot say this: it looks the same before anything is
-    // selected, and the recorded key means asking again does nothing.
+    // The chart's empty state cannot say this; it looks the same before anything is picked.
     expect(useTimeSeriesStore.getState().loadingText).toMatch(/No .* data for wb-606/);
     expect(useTimeSeriesStore.getState().series).toHaveLength(0);
     expect(useTimeSeriesStore.getState().loading).toBe(false);
@@ -339,6 +338,64 @@ describe('vpu load failures', () => {
     expect(useTimeSeriesStore.getState().variable).toBe('flow');
     expect(useVPUStore.getState().valuesByVar.flow).toHaveLength(1);
     expect(useTimeSeriesStore.getState().loadingText).toBe('');
+  });
+});
+
+describe('vpu load failures after the table check', () => {
+  it.each([
+    ['getFeatureIDs', 'getFeatureIDs'],
+    ['getVariables', 'getVariables'],
+    ['getVpuVariableFlat', 'getVpuVariableFlat'],
+  ])('reports a generic vpu failure when %s rejects', async (_name, fn) => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData[fn].mockRejectedValueOnce(new Error('query blew up'));
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+
+    await act(async () => { await loadVpu(); });
+
+    expect(useTimeSeriesStore.getState().loadingText).toBe('Failed to load VPU data for cacheKey: vpu-01');
+    expect(useTimeSeriesStore.getState().last_error).toEqual({ kind: 'vpu', cacheKey: 'vpu-01' });
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('distinguishes a vpu with no data from a vpu that failed', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.checkForTable.mockResolvedValue(false);
+    queryData.loadVpuData.mockRejectedValue(new Error('404'));
+    useDataStreamStore.setState({ cache_key: 'vpu-99' });
+
+    await act(async () => { await loadVpu(); });
+
+    expect(useTimeSeriesStore.getState().last_error).toEqual({ kind: 'vpu-missing', cacheKey: 'vpu-99' });
+    consoleError.mockRestore();
+  });
+});
+
+describe('failures are readable without parsing prose', () => {
+  it('names the feature and variable a series load failed on', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    queryData.getTimeseries.mockRejectedValueOnce(new Error('nope'));
+
+    await load({ featureId: 'wb-505', variable: 'flow' });
+
+    expect(useTimeSeriesStore.getState().last_error).toEqual({
+      kind: 'timeseries', featureId: 'wb-505', variable: 'flow',
+    });
+    consoleError.mockRestore();
+  });
+
+  it('clears itself on the next successful load', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.getTimeseries.mockRejectedValueOnce(new Error('nope'));
+    await load({ featureId: 'wb-505' });
+    expect(useTimeSeriesStore.getState().last_error).not.toBe(null);
+
+    await load({ featureId: 'wb-606' });
+
+    expect(useTimeSeriesStore.getState().last_error).toBe(null);
+    consoleError.mockRestore();
   });
 });
 

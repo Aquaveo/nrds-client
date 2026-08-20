@@ -1,6 +1,6 @@
 import {
   checkForTable,
-  loadVpuData,
+  loadVpuData as fetchVpuTable,
   getFeatureIDs,
   getVariables,
   getDistinctFeatureIds,
@@ -56,7 +56,7 @@ export async function loadVpu() {
     if (!tableExists) {
       try {
         const { prefix } = useS3DataStreamBucketStore.getState();
-        const fileSize = await loadVpuData(cacheKey, prefix);
+        const fileSize = await fetchVpuTable(cacheKey, prefix);
         if (superseded()) return;
         useCacheTablesStore.getState().add_cacheTable({
           id: cacheKey,
@@ -66,7 +66,10 @@ export async function loadVpu() {
       } catch (err) {
         if (superseded()) return;
         console.error('No data for VPU', vpu, err);
-        timeseries.set_loading_text('No data available for selected VPU');
+        useTimeSeriesStore.setState({
+          loadingText: 'No data available for selected VPU',
+          last_error: { kind: 'vpu-missing', cacheKey },
+        });
         return;
       }
     }
@@ -96,12 +99,14 @@ export async function loadVpu() {
     await loadTimeseries({ featureId, vpuGeneration: generation });
     if (superseded()) return;
 
-    // Only clear when nothing charted. Otherwise the series load owns this message, and
-    // clearing it here is what used to erase its failure before anyone could read it.
+    // Only when nothing charted: otherwise the series load owns this message.
     if (!featureId) timeseries.set_loading_text('');
   } catch (err) {
     if (superseded()) return;
-    timeseries.set_loading_text(`Failed to load VPU data for cacheKey: ${cacheKey}`);
+    useTimeSeriesStore.setState({
+      loadingText: `Failed to load VPU data for cacheKey: ${cacheKey}`,
+      last_error: { kind: 'vpu', cacheKey },
+    });
     console.error('Failed to load VPU data for cacheKey:', cacheKey, err);
   } finally {
     endVpuLoad();

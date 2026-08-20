@@ -10,15 +10,6 @@ const DEFAULT_LAYOUT = Object.freeze({
   title: 'TimeSeries',
 });
 
-function seriesFingerprint(arr) {
-  if (!Array.isArray(arr) || arr.length === 0) return 'empty';
-  const first = arr[0];
-  const last = arr[arr.length - 1];
-  const fx = first?.x instanceof Date ? first.x.getTime() : first?.x;
-  const lx = last?.x instanceof Date ? last.x.getTime() : last?.x;
-  return `${arr.length}|${fx}|${first?.y}|${lx}|${last?.y}`;
-}
-
 const useTimeSeriesStore = create(
   subscribeWithSelector((set, get ) => ({
       series: EMPTY_SERIES,
@@ -30,6 +21,8 @@ const useTimeSeriesStore = create(
       loadingText: '' ,
       // Whose data `series` holds, as vpu|variable|feature; null means nothing is loaded.
       last_loaded_key: null,
+      // What went wrong last, as {kind, ...}, so failure is readable without parsing prose.
+      last_error: null,
       currentTimeIndex: 0,
 
       isPlaying: false,
@@ -47,8 +40,7 @@ const useTimeSeriesStore = create(
           const nextEmpty = !nextSeries || nextSeries.length === 0;
           if (prevEmpty && nextEmpty) return s;
 
-          // "equal by value" guard (cheap)
-          if (seriesFingerprint(prev) === seriesFingerprint(nextSeries)) return s;
+          // No fingerprint guard: two features can share endpoints and differ in between.
 
           // A shorter series can leave the playback index past the end.
           const maxIdx = Math.max(0, (nextSeries?.length || 0) - 1);
@@ -138,6 +130,7 @@ const useTimeSeriesStore = create(
           currentTimeIndex: 0,
           isPlaying: false,
           last_loaded_key: null,
+          last_error: null,
         })),
   }))
 );

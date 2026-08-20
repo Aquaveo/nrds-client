@@ -7,13 +7,14 @@ import { loadTimeseries } from 'features/DataStream/actions/loadTimeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import { useVPUStore } from 'features/DataStream/store/Layers';
 import { useShallow } from 'zustand/react/shallow';
+import { createSequence } from 'features/DataStream/lib/sequence';
 import {
   VariableIcon,
 } from 'features/DataStream/lib/layers';
 
 function VariablesMenu() {
-  // No mounted flag: these writes all go to stores, so requestIdRef alone keeps ordering.
-  const requestIdRef = useRef(0);
+  // No mounted flag: these writes all go to stores, so ordering alone is enough.
+  const changes = useRef(createSequence()).current;
 
   const{ variables, cacheKey } = useDataStreamStore(
     useShallow((state) => ({
@@ -22,11 +23,10 @@ function VariablesMenu() {
     }))
   );
   
-  const { variable, set_variable, set_loading_text, feature_id } = useTimeSeriesStore(
+  const { variable, set_variable, feature_id } = useTimeSeriesStore(
     useShallow((state) => ({
       variable: state.variable,
       set_variable: state.set_variable,
-      set_loading_text: state.set_loading_text,
       feature_id: state.feature_id,
     }))
   );
@@ -51,8 +51,7 @@ function VariablesMenu() {
     const opt = evt || availableVariablesList?.[0];
     if (!opt || !feature_id) return;
 
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
+    const ticket = changes.next();
     const requestCacheKey = cacheKey;
 
     try {
@@ -64,17 +63,18 @@ function VariablesMenu() {
         cached ?? getVpuVariableFlat(requestCacheKey, opt.value),
         loadTimeseries({ variable: opt.value }),
       ]);
-      if (requestId !== requestIdRef.current) return;
+      if (!changes.isCurrent(ticket)) return;
       if (useDataStreamStore.getState().cache_key !== requestCacheKey) return;
-      // The vpu moved on while this was in flight, so these values describe a table that is
-      // no longer loaded. valuesByVar is keyed by variable alone and would not show the swap.
+      // The vpu moved on, so these values describe a table that is no longer loaded.
       setVarData(opt.value, flat);
       set_variable(opt.value);
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
-      // Say so: the chart may already have changed underneath, and silence here is what made
-      // the map and the chart disagree with nothing on screen to explain it.
-      set_loading_text(`Failed to load ${opt.value} for the map`);
+      if (!changes.isCurrent(ticket)) return;
+      // Say so: the chart may already have changed, and silence hid the disagreement.
+      useTimeSeriesStore.setState({
+        loadingText: `Failed to load ${opt.value} for the map`,
+        last_error: { kind: 'variable', variable: opt.value },
+      });
       console.error('Failed to change variable', err);
     }
   }, [
@@ -83,7 +83,7 @@ function VariablesMenu() {
     feature_id,
     setVarData,
     set_variable,
-    set_loading_text,
+    changes,
   ]);
 
   return (

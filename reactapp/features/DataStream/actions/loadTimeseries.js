@@ -1,5 +1,6 @@
 import { getTimeseries } from 'features/DataStream/lib/queryData';
 import { makeTitle } from 'features/DataStream/lib/utils';
+import { createSequence } from 'features/DataStream/lib/sequence';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import {
@@ -11,7 +12,7 @@ import {
 
 // Orders series loads against each other. Ordering against a vpu load is a separate
 // question, answered by the shared vpu generation in loadState.
-let latestRequest = 0;
+const series = createSequence();
 
 /**
  * Load and chart the series for one feature.
@@ -33,8 +34,7 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
   if (!targetId) return;
   if (targetId !== state.feature_id) store.setState({ feature_id: targetId });
 
-  // A vpu load is rebuilding the table this would read, so record the selection and leave the
-  // fetching to that load's own closing call, which reads the selection when it gets there.
+  // A vpu load is rebuilding this table; its closing call charts whatever is selected then.
   if (vpuGeneration === undefined && vpuLoadInFlight()) return;
 
   const generation = vpuGeneration ?? currentVpuGeneration();
@@ -44,13 +44,13 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
   // This exact series is already charted, so there is nothing to fetch.
   if (requestKey === state.last_loaded_key) return;
 
-  const requestId = ++latestRequest;
+  const ticket = series.next();
   // Superseded by a newer series load, or by a vpu load that replaced the table underneath.
-  const superseded = () => requestId !== latestRequest || generation !== currentVpuGeneration();
+  const superseded = () => !series.isCurrent(ticket) || generation !== currentVpuGeneration();
   const id = targetId.split('-')[1];
   store.getState().reset_series();
   beginLoading();
-  store.setState({ loadingText: 'Loading feature properties...' });
+  store.setState({ loadingText: 'Loading feature properties...', last_error: null });
   try {
     const rows = await getTimeseries(id, cacheKey, requestedVariable);
     if (superseded()) return;
@@ -61,15 +61,18 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
       xaxis: '',
       title: makeTitle(forecast, targetId),
     });
-    // Say when a load succeeded and found nothing. The chart's own empty state cannot: it
-    // looks the same before anything is selected, and the key below makes a re-ask a no-op.
+    // Say when a load found nothing; the chart's empty state cannot distinguish that.
     store.setState({
       last_loaded_key: requestKey,
       loadingText: points.length ? '' : `No ${requestedVariable} data for ${targetId}`,
+      last_error: null,
     });
   } catch (err) {
     if (superseded()) return;
-    store.setState({ loadingText: `Failed to load timeseries for id: ${targetId}` });
+    store.setState({
+      loadingText: `Failed to load timeseries for id: ${targetId}`,
+      last_error: { kind: 'timeseries', featureId: targetId, variable: requestedVariable },
+    });
     console.error('Failed to load timeseries for', targetId, err);
   } finally {
     endLoading();

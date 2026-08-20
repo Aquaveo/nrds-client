@@ -122,8 +122,7 @@ describe('changing variable', () => {
       release(Float32Array.from([1, 2, 3]));
     });
 
-    // valuesByVar is keyed by variable alone, so writing this would hand the new vpu the old
-    // one's numbers under a name it also uses.
+    // Keyed by variable alone, so this would hand the new vpu the old one's numbers.
     expect(useVPUStore.getState().valuesByVar.flow).toBeUndefined();
     expect(useTimeSeriesStore.getState().variable).toBe('');
   });
@@ -137,8 +136,7 @@ describe('changing variable', () => {
       screen.getByText('pick flow').click();
     });
 
-    // The chart may already have moved to the new variable, so silence here leaves the map and
-    // the chart disagreeing with nothing on screen to explain it.
+    // The chart may already have moved, so silence leaves map and chart disagreeing.
     expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load flow/);
     consoleError.mockRestore();
   });

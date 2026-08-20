@@ -30,8 +30,12 @@ const buildFeatureIdToIndex = (featureIds) => {
   return m;
 };
 
+// _id first: callers flatten a map feature into {_id, layerId, ...properties}, so the id they
+// deliberately chose for the layer lives there and there is no .properties to fall back on. A
+// layer whose tiles carry no `id` used to key every selection as null, which the guard below
+// reads as unchanged -- so the selection was silently dropped.
 const featureKey = (f) =>
-  f?.id ?? f?.properties?.id ?? f?.properties?.feature_id ?? null;
+  f?._id ?? f?.id ?? f?.properties?.id ?? f?.properties?.feature_id ?? null;
 
 const MAX_CACHED_VARS = 3;
 

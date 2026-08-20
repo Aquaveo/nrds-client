@@ -55,7 +55,7 @@ export const DataMenuLoading = React.memo(function DataMenuLoading() {
   );
 });
 
-const DataMenuControls = React.memo(function DataMenuControls() {
+export const DataMenuControls = React.memo(function DataMenuControls() {
   const { vpu, date, forecast, ensemble, cycle, model, outputFile } =
     useDataStreamStore(
       useShallow((state) => ({
@@ -132,6 +132,8 @@ const DataMenuControls = React.memo(function DataMenuControls() {
 
   const handleVisulization = useEvent(async () => {
     const { loading, set_loading_text } = useTimeSeriesStore.getState();
+    // Clear last press's complaint first, so a stale one cannot read as this press's answer.
+    set_loading_text('');
     if (!selected_feature_id || !vpu) {
       set_loading_text('Please select a feature on the map first');
       return;

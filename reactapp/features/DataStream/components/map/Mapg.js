@@ -7,7 +7,6 @@ import { PathLayer } from "@deck.gl/layers";
 import Map, { Source, useControl } from 'react-map-gl/maplibre';
 import { Protocol } from 'pmtiles';
 import useTimeSeriesStore from '../../store/Timeseries';
-import { loadTimeseries } from '../../actions/loadTimeseries';
 import useDataStreamStore from '../../store/Datastream';
 import { useVPUStore } from '../../store/Layers';
 import { useLayersStore, useFeatureStore } from '../../store/Layers';
@@ -25,9 +24,9 @@ import {
   computeBounds, 
   convertFeaturesToPaths, 
 } from '../../lib/layers';
-import { layerIdToFeatureType } from '../../lib/utils';
-import { getCentroid, flowpathsSignature, mapStyleUrl } from '../../lib/layers';
+import { flowpathsSignature, mapStyleUrl } from '../../lib/layers';
 import { flowPathLayerProps } from './flowPathLayer';
+import { selectMapFeature } from '../../actions/selectFeature';
 
 import {
   useCatchmentLayers,
@@ -116,21 +115,16 @@ const MainMap = () => {
   const {
     nexus_pmtiles,
     conus_pmtiles,
-    vpu,
-    set_vpu,
   } = useDataStreamStore(
     useShallow((s) => ({
       nexus_pmtiles: s.nexus_pmtiles,
       conus_pmtiles: s.community_pmtiles,
-      vpu: s.vpu,
-      set_vpu: s.set_vpu,
     }))
   );
 
-  const { set_hovered_feature, set_selected_feature, selectedMapFeature, hovered_feature } = useFeatureStore(
+  const { set_hovered_feature, selectedMapFeature, hovered_feature } = useFeatureStore(
     useShallow((s) => ({
       set_hovered_feature: s.set_hovered_feature,
-      set_selected_feature: s.set_selected_feature,
       selectedMapFeature: s.selected_feature,
       hovered_feature: s.hovered_feature,
     }))
@@ -387,26 +381,8 @@ const MainMap = () => {
     });
     if (!features || !features.length) return;
 
-    for (const feature of features) {
-      const layerId = feature.layer.id;
-      const featureIdProperty = layerIdToFeatureType(layerId);
-      const unbiased_id = feature.properties[featureIdProperty];
- 
-      const {lon, lat} = getCentroid(feature);
-      set_selected_feature({
-        latitude: lat,
-        longitude: lon,
-        layerId: layerId,
-        _id: unbiased_id,
-        ...feature.properties,
-      });
-      const vpu_str = `VPU_${feature.properties.vpuid}`;
-      if (vpu_str === vpu){
-        loadTimeseries({ featureId: unbiased_id });
-      }
-      set_vpu(vpu_str);
-      break;
-    }
+    const [feature] = features;
+    selectMapFeature(feature, feature.layer.id);
   };
 
   return (
