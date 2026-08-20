@@ -27,8 +27,13 @@ const sameArrayValues = (a, b) => {
 
 const useDataStreamStore = create((set) => ({
     ...DEFAULTS,
+    // Bumped on every cache key request, including a repeat of the same key, which is what
+    // makes re-running a failed vpu load possible. Kept out of DEFAULTS so reset() leaves it
+    // monotonic rather than sending it back to zero.
+    cache_request_id: 0,
     set_bucket: (bucket) => set((s) => (s.bucket === bucket ? s : { bucket })),
-    set_cache_key: (cache_key) => set((s) => (s.cache_key === cache_key ? s : { cache_key })),
+    set_cache_key: (cache_key) =>
+        set((s) => ({ cache_key, cache_request_id: s.cache_request_id + 1 })),
     set_vpu: (vpu) => set((s) => (s.vpu === vpu ? s : { vpu })),
     set_date: (date) => set((s) => (s.date === date ? s : { date })),
     set_forecast: (forecast) => set((s) => (s.forecast === forecast ? s : { forecast })),

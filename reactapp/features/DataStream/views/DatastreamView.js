@@ -117,10 +117,11 @@ function InitialS3Loader() {
 
 export function TimeseriesLoader() {
   
-  const { variables,cacheKey, forecast, vpu, set_variables } = useDataStreamStore(
+  const { variables,cacheKey, cache_request_id, forecast, vpu, set_variables } = useDataStreamStore(
     useShallow((s) => ({
       variables: s.variables,
       cacheKey: s.cache_key,
+      cache_request_id: s.cache_request_id,
       forecast: s.forecast,
       vpu: s.vpu,
       set_variables: s.set_variables,
@@ -279,7 +280,8 @@ export function TimeseriesLoader() {
    return () => {
     alive = false;
    };
-  }, [cacheKey]);
+    // Same reasoning as the timeseries effect: the counter makes a repeated request visible.
+  }, [cacheKey, cache_request_id]);
 
   return null;
 }

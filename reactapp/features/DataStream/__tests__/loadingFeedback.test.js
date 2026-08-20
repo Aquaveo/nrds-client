@@ -201,3 +201,27 @@ describe('re-selecting the same feature', () => {
     consoleError.mockRestore();
   });
 });
+
+describe('vpu load failures', () => {
+  it('can be retried by requesting the same cache key again', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.checkForTable.mockRejectedValueOnce(new Error('s3 unreachable'));
+
+    render(<TimeseriesLoader />);
+
+    await act(async () => {
+      useDataStreamStore.getState().set_cache_key('vpu-01');
+    });
+    expect(queryData.checkForTable).toHaveBeenCalledTimes(1);
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load VPU data/);
+
+    // Same cache key: without a request counter this is a no-op and the load can never rerun.
+    await act(async () => {
+      useDataStreamStore.getState().set_cache_key('vpu-01');
+    });
+    expect(queryData.checkForTable).toHaveBeenCalledTimes(2);
+    expect(useTimeSeriesStore.getState().loadingText).toBe('');
+
+    consoleError.mockRestore();
+  });
+});

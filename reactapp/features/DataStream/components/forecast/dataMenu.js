@@ -133,17 +133,14 @@ const DataMenuControls = React.memo(function DataMenuControls() {
     const { loading, set_loading_text } = useTimeSeriesStore.getState();
     if (!selected_feature_id || !vpu) {
       set_loading_text('Please select a feature on the map first');
-      set_loading_text('');
       return;
     }
     if (!outputFile) {
       set_loading_text('No Output File selected');
-      set_loading_text('');
       return;
     }
     if (loading) {
       set_loading_text('Data is already loading, please wait...');
-      set_loading_text('');
       return;
     }
     // reset();
