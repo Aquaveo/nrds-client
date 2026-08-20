@@ -18,7 +18,10 @@ let cacheDirPromise = null;
  * thing the app does.
  */
 const MAX_CACHED_FILES = 10;
-const NEVER_EVICT = new Set(["index_data_table.parquet"]);
+
+// Files the app manages for itself: never evicted, and not listed as something to delete. The
+// id index is one -- the search depends on it, and removing it only breaks search until reload.
+const INTERNAL_FILES = new Set(["index_data_table.parquet"]);
 const RECENCY_STORAGE_KEY = "nrds-cache-recency";
 
 const readRecency = () => {
@@ -68,7 +71,7 @@ export async function pruneCache() {
     if (isArrowFile(id) || isParquetFile(id)) present.push(id);
   }
 
-  const evictable = present.filter((id) => !NEVER_EVICT.has(id));
+  const evictable = present.filter((id) => !INTERNAL_FILES.has(id));
   if (evictable.length <= MAX_CACHED_FILES) return [];
 
   // A file with no recorded use sorts oldest, which is what -1 gives us here.
@@ -309,6 +312,7 @@ export async function getFilesFromCache() {
     const id = decodeURIComponent(handle.name);
     // An interrupted download leaves a .crswap behind; it is not a cached table.
     if (!isArrowFile(id) && !isParquetFile(id)) continue;
+    if (INTERNAL_FILES.has(id)) continue;
     const file = await handle.getFile();
     files.push({id: id, name: id.replaceAll("_", "/"), size: formatBytes(file.size)});
   }

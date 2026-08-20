@@ -54,6 +54,25 @@ beforeEach(() => {
   getConnection.mockResolvedValue({ query: jest.fn(), close: jest.fn() });
 });
 
+describe('getFilesFromCache', () => {
+  it('does not offer the id index as something to delete', async () => {
+    fakeOpfs(['index_data_table.parquet', 'model_date_VPU_1_troute.parquet']);
+    const { getFilesFromCache } = load();
+
+    const listed = await getFilesFromCache();
+
+    // It is the app's own file: exempt from eviction, and deleting it only breaks search.
+    expect(listed.map((f) => f.id)).toEqual(['model_date_VPU_1_troute.parquet']);
+  });
+
+  it('still lists the vpu parquets the user chose to load', async () => {
+    fakeOpfs(vpuKeys(3));
+    const { getFilesFromCache } = load();
+
+    expect(await getFilesFromCache()).toHaveLength(3);
+  });
+});
+
 describe('pruneCache', () => {
   it('leaves the cache alone while it is within the cap', async () => {
     const files = fakeOpfs(vpuKeys(10));
