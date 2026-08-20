@@ -63,8 +63,7 @@ const FlowPathsOverlay = React.memo(function FlowPathsOverlay({
 }) {
   const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
 
-  // Bounds describe the data, not the frame. Computing them inside the layer memo rescanned
-  // every value on every step: about 9 ms per frame at 20k flowpaths over 240 timesteps.
+  // Bounds describe the data, not the frame: about 9 ms per frame at 20k flowpaths.
   const bounds = useMemo(
     () => (valuesByVar ? computeBounds(valuesByVar) : null),
     [valuesByVar]
@@ -79,8 +78,7 @@ const FlowPathsOverlay = React.memo(function FlowPathsOverlay({
       new PathLayer({
         id: "flowpaths-anim",
         data: pathData,
-        // Toggled rather than removed: deck.gl keeps a hidden layer's GPU resources, so
-        // turning flowpaths back on is instant instead of rebuilding every buffer.
+        // Toggled, not removed: deck.gl keeps a hidden layer's GPU resources.
         visible,
         getPath: (d) => d.path,
         getColor: (d, { target }) => {

@@ -12,8 +12,7 @@ import {
 } from 'features/DataStream/lib/layers';
 
 function VariablesMenu() {
-  // No mounted flag: everything below writes to stores rather than component state, so a
-  // late result cannot touch an unmounted component. requestIdRef alone keeps ordering.
+  // No mounted flag: these writes all go to stores, so requestIdRef alone keeps ordering.
   const requestIdRef = useRef(0);
 
   const{ variables, cacheKey } = useDataStreamStore(
@@ -55,15 +54,10 @@ function VariablesMenu() {
     requestIdRef.current = requestId;
 
     try {
-      // The vpu store already keeps the last few variables' flat arrays, and resetVPU clears
-      // them whenever the vpu changes, so a hit can only be data for the current one. Reusing
-      // it skips a query measured at about 800 ms for 4.8M rows, most of it the sort.
+      // Reusing the vpu store's cached array skips a query measured at about 800 ms.
       const cached = useVPUStore.getState().getVarData(opt.value);
 
-      // The flat array and the chart's series need each other's results not at all, so both
-      // start together. Charting is the store's job; this menu only owns the map data and the
-      // selected variable, which is set last so the flowpath layer never looks up a variable
-      // whose values have not arrived.
+      // Both start together; the variable is set last so the layer never reads absent values.
       const [flat] = await Promise.all([
         cached ?? getVpuVariableFlat(cacheKey, opt.value),
         loadTimeseries({ variable: opt.value }),

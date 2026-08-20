@@ -26,7 +26,7 @@ let latestRequest = 0;
  * visualize is an event, and so is picking a vpu on the map, so both call this instead and a
  * repeat call is simply a repeat.
  *
- * It lives outside the stores because it spans five of them. Reading each with getState at
+ * It lives outside the stores because it spans six of them. Reading each with getState at
  * the point of use also means late steps see current state rather than whatever a render
  * closure captured when the load began.
  */
@@ -95,10 +95,7 @@ export async function loadVpu() {
     timeseries.set_loading_text(`Failed to load VPU data for cacheKey: ${cacheKey}`);
     console.error('Failed to load VPU data for cacheKey:', cacheKey, err);
   } finally {
-    // A plain if, not an early return: returning from finally would discard a propagating
-    // exception.
+    // A plain if: returning from finally would discard a propagating exception.
     if (!superseded()) timeseries.set_loading(false);
   }
 }
-
-export default loadVpu;

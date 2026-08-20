@@ -113,8 +113,7 @@ describe('loadTimeseries', () => {
     await load({ featureId: 'wb-202', variable: 'precipitation' });
 
     expect(queryData.getTimeseries.mock.calls[0][2]).toBe('precipitation');
-    // The flowpath layer looks up data by store variable, so the action must not move it
-    // ahead of the values arriving.
+    // The layer looks up data by store variable, so the action must not move it early.
     expect(useTimeSeriesStore.getState().variable).toBe('');
   });
 
@@ -242,8 +241,7 @@ describe('vpu load failures', () => {
     expect(queryData.checkForTable).toHaveBeenCalledTimes(1);
     expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load VPU data/);
 
-    // Asking again is the retry. The effect this replaced keyed on cache_key, so a repeat
-    // request for the same vpu changed nothing and could never re-run.
+    // Asking again is the retry; the effect this replaced could never re-run.
     await act(async () => { await loadVpu(); });
 
     expect(queryData.checkForTable).toHaveBeenCalledTimes(2);

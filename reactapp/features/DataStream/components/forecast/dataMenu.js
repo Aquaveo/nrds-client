@@ -151,8 +151,7 @@ const DataMenuControls = React.memo(function DataMenuControls() {
     const _prefix = makePrefix(model, date, forecast, cycle, ensemble, vpu, outputFile);
     set_prefix(_prefix);
 
-    // Pressing visualize is the request; a repeat press is simply a repeat, which is what
-    // makes retrying a failed load possible.
+    // A repeat press is simply a repeat, which is what makes retrying a failure possible.
     await loadVpu();
   });
 

@@ -12,6 +12,9 @@ import { render, screen } from '@testing-library/react';
 
 import LineChart from 'features/DataStream/components/forecast/Plot';
 
+/* eslint-disable testing-library/no-container, testing-library/no-node-access --
+   an svg chart exposes no roles or text for its geometry; the path element is the assertion. */
+
 // Same shape TimeseriesCard builds: one entry per series, each holding its own points.
 const series = [
   {
@@ -52,8 +55,7 @@ describe('LineChart', () => {
   });
 
   it('survives a zero-width container', () => {
-    // The chart mounts before its container has been measured, so this is the first render
-    // every time, not an edge case.
+    // The chart mounts before measurement, so this is the first render every time.
     expect(() =>
       render(<LineChart width={0} height={0} data={series} layout={layout} />)
     ).not.toThrow();

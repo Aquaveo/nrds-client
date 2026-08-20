@@ -486,9 +486,7 @@ export function writeColorInto(value, bounds, target) {
     target[3] = MISSING_COLOR[3];
     return target;
   }
-  // Clamped because anything outside bounds indexes past the end of the scale, which used to
-  // throw inside a deck.gl accessor. The linear ramp this replaced was clamped and the guard
-  // was lost when the curve became a square root.
+  // Clamped: out-of-range values used to index past the scale and throw in the accessor.
   const ratio = !bounds || bounds.max === bounds.min
     ? 0
     : (value - bounds.min) / (bounds.max - bounds.min);

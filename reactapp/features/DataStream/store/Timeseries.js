@@ -28,9 +28,7 @@ const useTimeSeriesStore = create(
       
       loading: false,
       loadingText: '' ,
-      // Identifies whose data `series` currently holds, as vpu|variable|feature. A repeat
-      // click on that same combination has nothing to fetch. Null means nothing is loaded,
-      // so a failed or cleared load is always retried.
+      // Whose data `series` holds, as vpu|variable|feature; null means nothing is loaded.
       last_loaded_key: null,
       currentTimeIndex: 0,
 
@@ -52,8 +50,7 @@ const useTimeSeriesStore = create(
           // "equal by value" guard (cheap)
           if (seriesFingerprint(prev) === seriesFingerprint(nextSeries)) return s;
 
-          // A shorter series can leave the playback index past the end. Clamping here means
-          // no component has to notice afterwards and correct it in an effect.
+          // A shorter series can leave the playback index past the end.
           const maxIdx = Math.max(0, (nextSeries?.length || 0) - 1);
           if (s.currentTimeIndex > maxIdx) {
             return { series: nextSeries, currentTimeIndex: maxIdx };
@@ -115,7 +112,6 @@ const useTimeSeriesStore = create(
       },
       set_loading: (isLoading) => set({ loading: isLoading }),
       set_loading_text: (newLoadingText) => set({ loadingText: newLoadingText }),
-      set_last_loaded_key: (key) => set({ last_loaded_key: key }),
       
       set_chart_layout: (newLayout) => set({ chart_layout: newLayout }),
       set_variable: (newVariable) => set({ variable: newVariable }),

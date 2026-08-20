@@ -4,7 +4,6 @@
  * query costs about 800 ms, most of it the ORDER BY, so a repeat visit paid it again for
  * data already in memory.
  */
-import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
@@ -13,6 +12,7 @@ import { useVPUStore } from 'features/DataStream/store/Layers';
 
 // react-select renders its options through a virtualized list, which is awkward to drive and
 // beside the point: what matters here is what the change handler does.
+/* eslint-disable react/prop-types -- a two-prop stand-in for react-select, not a component. */
 jest.mock('features/DataStream/components/SelectComponent', () => function SelectComponent({ optionsList, onChangeHandler }) {
   return (
     <div>

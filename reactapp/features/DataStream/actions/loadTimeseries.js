@@ -56,5 +56,3 @@ export async function loadTimeseries({ featureId, variable } = {}) {
     if (requestId === latestRequest) store.setState({ loading: false });
   }
 }
-
-export default loadTimeseries;
