@@ -223,29 +223,38 @@ export const SButton = styled(Button)`
   }
 `;
 
-// Sits in the header, so it must stay compact and never push the search bar around. Failure
-// is styled from last_error rather than by matching the message text.
+// Sits in the header, so it must stay compact and never push the search bar around. Failure is
+// styled from last_error rather than by matching the message text. The colours come from the
+// theme because the header is white in one and navy in the other -- a single hardcoded grey
+// measured 1.38:1 against the dark one, which is why nothing could be read.
 export const StatusStrip = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
   margin-left: 12px;
-  padding: 4px 12px;
+  padding: 6px 14px;
   border-radius: 999px;
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
   max-width: 32vw;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: ${({ $failed }) =>
-    $failed ? 'var(--status-failed-text, #b42318)' : 'var(--status-text, #475467)'};
+    $failed ? 'var(--status-failed-text)' : 'var(--status-text)'};
   background-color: ${({ $failed }) =>
-    $failed ? 'var(--status-failed-bg, rgba(180, 35, 24, 0.12))' : 'var(--status-bg, rgba(71, 84, 103, 0.1))'};
+    $failed ? 'var(--status-failed-bg)' : 'var(--status-bg)'};
+
+  /* The spinner draws itself in currentColor, so it follows the text. */
+  .spinner-border {
+    border-width: 2px;
+  }
 
   @media (max-width: 768px) {
     max-width: 45vw;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+    padding: 4px 10px;
   }
 `;
 

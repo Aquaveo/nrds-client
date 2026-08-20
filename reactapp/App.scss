@@ -37,6 +37,14 @@ $theme-colors: (
    --primary-color: #{$primary};
   --title-text-color: #5f6368;
   --ts-header-height: 56px;
+
+  /* Header status strip. Values chosen against this theme's header background: the text
+     reaches 14.1:1 normally and 5.8:1 when reporting a failure. $danger itself only makes
+     4.5:1 on white, so failure text is a shade darker than it. */
+  --status-text: #212121;
+  --status-bg: rgba(0, 0, 0, 0.06);
+  --status-failed-text: #b42318;
+  --status-failed-bg: rgba(214, 37, 24, 0.08);
   --map-style-url: #{'https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/styles/light-style.json'};
   
 
@@ -143,6 +151,13 @@ $theme-colors: (
     --title-text-color: #ffffff;
     --background-color: #{$secondary};
     --text-color: #ffffff;
+
+    /* 7.2:1 normally and 6.3:1 for failures against the dark header. $danger is far too dark
+       to read on this background, so failure text is lightened rather than reused. */
+    --status-text: #ffffff;
+    --status-bg: rgba(255, 255, 255, 0.14);
+    --status-failed-text: #ffb4ab;
+    --status-failed-bg: rgba(214, 37, 24, 0.16);
     --hover-text: #{$primary};
     --map-style-url: #{'https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/styles/dark-style.json'};
     --map-divides-outline-color: rgba(238, 51, 119, 0.5);
