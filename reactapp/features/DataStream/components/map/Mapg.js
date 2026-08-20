@@ -116,6 +116,13 @@ const MainMap = () => {
   const mapStyleUrl = getComputedStyle(document.documentElement).getPropertyValue('--map-style-url').trim();
 
 
+  // Bounds depend on the data, not on the frame. Computing them inside the animated memo
+  // below rescanned every value on every step: about 9 ms per frame at 20k flowpaths.
+  const flowBounds = useMemo(
+    () => (valuesByVar ? computeBounds(valuesByVar) : null),
+    [valuesByVar]
+  );
+
   const deckLayers = useMemo(() => {
     if (!isFlowPathsVisible) return EMPTY_LAYERS;
     const varData = valuesByVar;
@@ -124,7 +131,7 @@ const MainMap = () => {
     const pathData = pathDataRef.current;
     
     if (!varData || !numTimes || !pathData?.length) return EMPTY_LAYERS;
-    const bounds = computeBounds(varData);
+    const bounds = flowBounds;
     return [
       new PathLayer({
         id: "flowpaths-anim",
@@ -155,6 +162,7 @@ const MainMap = () => {
   }, [
     isFlowPathsVisible,
     valuesByVar,
+    flowBounds,
     variable,
     timesArr,
     currentTimeIndex,

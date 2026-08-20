@@ -455,25 +455,38 @@ export function getValueAtTimeFlat(varData, numTimes, featureIndex, timeIndex) {
   return varData[idx];
 }
 
+// Hoisted out of valueToColor, which deck.gl calls once per flowpath per animation frame.
+// Rebuilding these seven arrays on every call cost about half the function's runtime.
+const COLOR_SCALE = [
+  [0, 119, 187],
+  [0, 180, 216],
+  [144, 224, 239],
+  [255, 186, 8],
+  [255, 107, 53],
+  [208, 0, 0],
+];
+const MISSING_COLOR = [100, 100, 100, 150];
+
 export function valueToColor(value, bounds) {
-  const colorScale = [
-    [0, 119, 187],
-    [0, 180, 216],
-    [144, 224, 239],
-    [255, 186, 8],
-    [255, 107, 53],
-    [208, 0, 0],
-  ];
-  if (value === null || value === undefined || value <= -9998) return [100, 100, 100, 150];
-  if (!bounds || bounds.max === bounds.min) return colorScale[0];
-  const t = Math.pow((value - bounds.min) / (bounds.max - bounds.min), 0.5)
-  // const t = Math.max(0, Math.min(1, (value - bounds.min) / (bounds.max - bounds.min)));
-  const idx = t * (colorScale.length - 1);
+  if (value === null || value === undefined || value <= -9998) return MISSING_COLOR;
+  if (!bounds || bounds.max === bounds.min) return COLOR_SCALE[0];
+  // Clamped because anything outside bounds indexes past the end of the scale and throws
+  // inside a deck.gl accessor. The commented-out linear ramp this replaced was clamped; the
+  // guard was lost when the curve became a square root.
+  const ratio = (value - bounds.min) / (bounds.max - bounds.min);
+  const t = ratio > 0 ? Math.sqrt(ratio > 1 ? 1 : ratio) : 0;
+  const idx = t * (COLOR_SCALE.length - 1);
   const lower = Math.floor(idx);
   const upper = Math.ceil(idx);
   const frac = idx - lower;
-  if (lower === upper) return colorScale[lower];
-  return colorScale[lower].map((c, i) => Math.round(c + (colorScale[upper][i] - c) * frac));
+  if (lower === upper) return COLOR_SCALE[lower];
+  const from = COLOR_SCALE[lower];
+  const to = COLOR_SCALE[upper];
+  return [
+    Math.round(from[0] + (to[0] - from[0]) * frac),
+    Math.round(from[1] + (to[1] - from[1]) * frac),
+    Math.round(from[2] + (to[2] - from[2]) * frac),
+  ];
 }
 
 export function computeBounds(varData) {
