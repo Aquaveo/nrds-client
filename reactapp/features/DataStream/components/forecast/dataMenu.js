@@ -1,7 +1,6 @@
 // DataMenu.js
 import React, { Fragment, useMemo } from 'react';
-import { Spinner } from 'react-bootstrap';
-import { XButton, LoadingMessage, Row, IconLabel } from '../styles/Styles';
+import { XButton, Row, IconLabel } from '../styles/Styles';
 import SelectComponent from '../SelectComponent';
 import { getOptionsFromURL, makePrefix } from 'features/DataStream/lib/s3Utils';
 import { getCacheKey } from 'features/DataStream/lib/opfsCache';
@@ -30,30 +29,6 @@ function useEvent(fn) {
   });
   return React.useCallback((...args) => ref.current(...args), []);
 }
-
-export const DataMenuLoading = React.memo(function DataMenuLoading() {
-  const { loading, loadingText } = useTimeSeriesStore(
-    useShallow((s) => ({
-      loading: s.loading,
-      loadingText: s.loadingText,
-    }))
-  );
-
-  return (
-    <LoadingMessage role="status" aria-live="polite">
-      {/* Text sits outside the loading gate: failures set it and then clear loading. */}
-      {loading && (
-        <Spinner
-          as="span"
-          size="sm"
-          animation="border"
-          aria-hidden="true"
-        />
-      )}
-      {loadingText && <span>&nbsp;{loadingText}</span>}
-    </LoadingMessage>
-  );
-});
 
 export const DataMenuControls = React.memo(function DataMenuControls() {
   const { vpu, date, forecast, ensemble, cycle, model, outputFile } =
@@ -523,12 +498,8 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
 
 
 function DataMenu() {
-  return (
-    <>
-      <DataMenuControls />
-      <DataMenuLoading />
-    </>
-  );
+  // No status line here any more; LoadStatus sits in the header, which is always on screen.
+  return <DataMenuControls />;
 }
 
 export default React.memo(DataMenu);

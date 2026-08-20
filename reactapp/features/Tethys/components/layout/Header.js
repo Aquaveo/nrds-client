@@ -8,6 +8,7 @@ import { BsX, BsInfoCircle } from 'react-icons/bs';
 import { LinkContainer } from 'react-router-bootstrap';
 import HeaderButton from 'features/Tethys/components/buttons/HeaderButton';
 import SearchBar from 'features/DataStream/components/map/SearchBar';
+import LoadStatus from 'features/DataStream/components/status/LoadStatus';
 import { AppContext } from 'features/Tethys/context/context';
 import { CustomNavBar, CustomDiv, StyledButton } from 'features/Tethys/components/Styles';
 import { GeneralInfoModal } from 'features/DataStream/components/Modals';
@@ -35,6 +36,7 @@ const Header = ({onNavChange}) => {
               </LinkContainer>
  
               <SearchBar/>
+              <LoadStatus/>
             </CustomDiv>
             <CustomDiv>
               <StyledButton onClick={() => setModalGeneralInfoShow(true)}><BsInfoCircle size="1.5rem"/></StyledButton>

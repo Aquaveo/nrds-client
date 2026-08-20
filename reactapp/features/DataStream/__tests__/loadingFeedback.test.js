@@ -38,7 +38,7 @@ const queryData = require('features/DataStream/lib/queryData');
 const { loadVpu } = require('features/DataStream/actions/loadVpu');
 const { loadTimeseries } = require('features/DataStream/actions/loadTimeseries');
 const { resetLoadState } = require('features/DataStream/actions/loadState');
-const { DataMenuLoading } = require('features/DataStream/components/forecast/dataMenu');
+const { LoadStatus } = require('features/DataStream/components/status/LoadStatus');
 
 const initialTimeseriesState = useTimeSeriesStore.getState();
 const initialDataStreamState = useDataStreamStore.getState();
@@ -67,8 +67,15 @@ beforeEach(() => {
 });
 
 describe('status line', () => {
+  it('shows nothing at all while idle', () => {
+    const { container } = render(<LoadStatus />);
+
+    // It sits in the header, so an idle app must not reserve space for it.
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('keeps a failure message visible after loading turns false', () => {
-    render(<DataMenuLoading />);
+    render(<LoadStatus />);
 
     // The order a failed load writes these in: message first, flag cleared after.
     act(() => {
@@ -82,8 +89,38 @@ describe('status line', () => {
     expect(screen.getByText(/Failed to load timeseries/)).toBeInTheDocument();
   });
 
+  it('reports a failure even when no feature is selected', () => {
+    render(<LoadStatus />);
+
+    // The state the forecast panel hides in, and a failed load never leaves it.
+    act(() => {
+      useTimeSeriesStore.setState({
+        feature_id: null,
+        loading: false,
+        loadingText: 'Failed to load VPU data for cacheKey: vpu-01',
+        last_error: { kind: 'vpu', cacheKey: 'vpu-01' },
+      });
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Failed to load VPU data/);
+  });
+
+  it('shows a spinner while loading and no feature is selected yet', () => {
+    render(<LoadStatus />);
+
+    act(() => {
+      useTimeSeriesStore.setState({
+        feature_id: null,
+        loading: true,
+        loadingText: 'Loading feature properties...',
+      });
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Loading feature properties/);
+  });
+
   it('shows nothing once the text is cleared', () => {
-    render(<DataMenuLoading />);
+    render(<LoadStatus />);
     act(() => {
       useTimeSeriesStore.setState({ loading: false, loadingText: '' });
     });

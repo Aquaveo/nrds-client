@@ -223,6 +223,32 @@ export const SButton = styled(Button)`
   }
 `;
 
+// Sits in the header, so it must stay compact and never push the search bar around. Failure
+// is styled from last_error rather than by matching the message text.
+export const StatusStrip = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  max-width: 32vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: ${({ $failed }) =>
+    $failed ? 'var(--status-failed-text, #b42318)' : 'var(--status-text, #475467)'};
+  background-color: ${({ $failed }) =>
+    $failed ? 'var(--status-failed-bg, rgba(180, 35, 24, 0.12))' : 'var(--status-bg, rgba(71, 84, 103, 0.1))'};
+
+  @media (max-width: 768px) {
+    max-width: 45vw;
+    font-size: 0.8rem;
+  }
+`;
+
 export const LoadingMessage = styled.div`
   color: var(--muted-text);
   padding: 10px;
