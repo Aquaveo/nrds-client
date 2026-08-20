@@ -10,6 +10,13 @@ import "jest-location-mock";
 // Make .env files accessible to tests (path relative to project root)
 require('dotenv').config({ path: './reactapp/config/tests/test.env'});
 
+// jsdom omits these two web globals. apache-arrow, reached through the duckdb helpers, uses
+// them at import time, so without this any test that touches a module importing those helpers
+// fails to load rather than failing an assertion.
+const { TextEncoder, TextDecoder } = require('util');
+if (!global.TextEncoder) global.TextEncoder = TextEncoder;
+if (!global.TextDecoder) global.TextDecoder = TextDecoder;
+
 // Setup mocked Tethys API.
 //
 // Loaded defensively because ./mocks/server.js cannot currently be imported at all. It still
