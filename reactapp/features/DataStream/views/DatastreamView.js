@@ -210,8 +210,9 @@ export function TimeseriesLoader() {
         set_loading_text(`Failed to load VPU data for cacheKey: ${cacheKey}`);
         console.error('Failed to load VPU data for cacheKey:', cacheKey, err);
     } finally {
-      if (!alive) return;
-      set_loading(false);
+      // A plain if, not an early return: returning from finally discards any exception the
+      // try or catch was in the middle of propagating.
+      if (alive) set_loading(false);
     }
    }
    getVPUData();
