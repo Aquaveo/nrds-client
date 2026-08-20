@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useEffect, useRef, useId } from 'react';
+import { useIsNarrowViewport } from './useIsNarrowViewport';
 import { Group } from '@visx/group';
 import { scaleLinear, scaleTime } from '@visx/scale';
 import { AxisBottom } from '@visx/axis';
@@ -151,9 +152,9 @@ const LineChart = React.memo(function LineChart({ width, height, data, layout })
   const overlayRef = useRef(null);
 
   // --- theme vars ---
-  const screenWidth = window.innerWidth;
-  const fontSize = screenWidth <= 1300 ? 13 : 18;
-  const fontWeight = screenWidth <= 1300 ? 600 : 500;
+  const isNarrow = useIsNarrowViewport();
+  const fontSize = isNarrow ? 13 : 18;
+  const fontWeight = isNarrow ? 600 : 500;
 
 
 
