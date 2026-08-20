@@ -5,6 +5,7 @@ import { XButton, LoadingMessage, Row, IconLabel } from '../styles/Styles';
 import SelectComponent from '../SelectComponent';
 import { getOptionsFromURL, makePrefix } from 'features/DataStream/lib/s3Utils';
 import { getCacheKey } from 'features/DataStream/lib/opfsCache';
+import { loadVpu } from 'features/DataStream/actions/loadVpu';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
@@ -149,6 +150,10 @@ const DataMenuControls = React.memo(function DataMenuControls() {
 
     const _prefix = makePrefix(model, date, forecast, cycle, ensemble, vpu, outputFile);
     set_prefix(_prefix);
+
+    // Pressing visualize is the request; a repeat press is simply a repeat, which is what
+    // makes retrying a failed load possible.
+    await loadVpu();
   });
 
   const handleChangeModel = useEvent(async (v) => {

@@ -4,21 +4,11 @@ import { ToastContainer } from 'react-toastify';
 import MapComponent from 'features/DataStream/components/map/Mapg.js';
 import MainMenu from 'features/DataStream/components/menus/MainMenu';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
-import useTimeSeriesStore from '../store/Timeseries';
-import { useCacheTablesStore } from '../store/CacheTables';
-import { useVPUStore, useFeatureStore } from '../store/Layers';
 import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
 import { initialS3Data, makePrefix } from 'features/DataStream/lib/s3Utils';
 import { getCacheKey } from 'features/DataStream/lib/opfsCache';
-import { checkForTable, 
-  loadVpuData, 
-  getFeatureIDs, 
-  getDistinctFeatureIds, 
-  getDistinctTimes, 
-  getVpuVariableFlat, 
-  getVariables 
-} from 'features/DataStream/lib/queryData';
 import { terminateDatabase } from 'features/DataStream/lib/duckdbClient';
+import { loadVpu } from 'features/DataStream/actions/loadVpu';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useShallow } from "zustand/react/shallow";
 
@@ -96,6 +86,9 @@ function InitialS3Loader() {
           prefix: _prefix,
         });
 
+        // Explicit, so the vpu load is no longer a second effect reacting to cache_key.
+        await loadVpu();
+
       } catch (error) {
         if (error?.name === 'AbortError') return;
         console.error('Error fetching initial S3 data:', error);
@@ -113,120 +106,6 @@ function InitialS3Loader() {
   return null;
 }
 
-export function TimeseriesLoader() {
-  
-  const { cacheKey, cache_request_id, vpu, set_variables } = useDataStreamStore(
-    useShallow((s) => ({
-      cacheKey: s.cache_key,
-      cache_request_id: s.cache_request_id,
-      vpu: s.vpu,
-      set_variables: s.set_variables,
-    }))
-  );
-  const { selected_feature_id } = useFeatureStore(
-    useShallow((s) => ({
-      selected_feature_id: s.selected_feature ? s.selected_feature._id : null,
-    }))
-  );
-
-  const { add_cacheTable } = useCacheTablesStore(
-    useShallow((s) => ({
-      add_cacheTable: s.add_cacheTable,
-    }))
-  );
-  
-  const { prefix } = useS3DataStreamBucketStore(
-    useShallow((s) => ({ prefix: s.prefix }))
-  );
-
-  const { variable, loadTimeseries, set_variable, set_loading_text, set_loading, reset } = useTimeSeriesStore(
-    useShallow((s) => ({
-      variable: s.variable,
-      loadTimeseries: s.loadTimeseries,
-      set_variable: s.set_variable,
-      set_loading_text: s.set_loading_text,
-      set_loading: s.set_loading,
-      reset: s.reset,
-    }))
-  );
-  const { set_feature_ids, setVarData, setAnimationIndex, resetVPU } = useVPUStore(
-    useShallow((s) => ({
-      set_feature_ids: s.set_feature_ids,
-      setVarData: s.setVarData,
-      setAnimationIndex: s.setAnimationIndex,
-      resetVPU: s.resetVPU,
-    }))
-  );
-  useEffect( () => {
-   let alive = true;
-
-   async function getVPUData(){
-    if (!cacheKey) return;
-    reset();
-    resetVPU();
-    // const vpu_gpkg = makeGpkgUrl(vpu);
-    set_loading(true);
-    set_loading_text('Loading feature properties...');
-    let currentVariable = variable;
-    try {
-      const tableExists = await checkForTable(cacheKey);
-      if (!alive) return;
-
-      if (!tableExists) {
-        try{
-          // const fileSize = await loadVpuData(cacheKey, prefix, vpu_gpkg);
-          const fileSize = await loadVpuData(cacheKey, prefix);
-          if (!alive) return;
-          add_cacheTable({id: cacheKey, name: cacheKey.replaceAll('_',' '), size: fileSize});
-        }catch(err){
-          if (!alive) return;
-          console.error('No data for VPU', vpu, err);
-          set_loading_text('No data available for selected VPU');
-          return;
-        }
-      }
-      const featureIDs = await getFeatureIDs(cacheKey);
-      if (!alive) return;
-      set_feature_ids(featureIDs);
-      const variables = await getVariables({ cacheKey });
-      if (!alive) return;
-      set_variables(variables);
-      set_variable(variables[0]);
-      currentVariable = variables[0];
-      const [featureIds, times, flat] = await Promise.all([
-        getDistinctFeatureIds(cacheKey),
-        getDistinctTimes(cacheKey),
-        getVpuVariableFlat(cacheKey, currentVariable),
-      ]);
-      if (!alive) return;
-      setAnimationIndex(featureIds, times);
-      setVarData(currentVariable, flat);
-      await loadTimeseries({ featureId: selected_feature_id });
-
-      set_loading_text('');
-    } 
-    catch (err) {
-        if (!alive) return;
-        set_loading_text(`Failed to load VPU data for cacheKey: ${cacheKey}`);
-        console.error('Failed to load VPU data for cacheKey:', cacheKey, err);
-    } finally {
-      // A plain if, not an early return: returning from finally discards any exception the
-      // try or catch was in the middle of propagating.
-      if (alive) set_loading(false);
-    }
-   }
-   getVPUData();
-
-   return () => {
-    alive = false;
-   };
-    // Same reasoning as the timeseries effect: the counter makes a repeated request visible.
-  }, [cacheKey, cache_request_id]);
-
-  return null;
-}
-
-
 const DataStreamView = () => {
   useEffect(() => {
     return () => {
@@ -239,7 +118,6 @@ const DataStreamView = () => {
   return (
     <ViewContainer>
       <InitialS3Loader />
-      <TimeseriesLoader />
       <ToastContainer stacked  />
         <MapContainer>
           <MapComponent/>

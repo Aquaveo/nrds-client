@@ -13,11 +13,9 @@ import { render, screen, act } from '@testing-library/react';
 
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
+import { useVPUStore } from 'features/DataStream/store/Layers';
 
-// The map and menu subtrees pull maplibre, deck.gl and duckdb-wasm, none of which run in
-// jsdom, and none of which these assertions touch.
-jest.mock('features/DataStream/components/map/Mapg.js', () => function Mapg() { return null; });
-jest.mock('features/DataStream/components/menus/MainMenu', () => function MainMenu() { return null; });
+// These reach for duckdb-wasm and s3, neither of which runs in jsdom.
 jest.mock('features/DataStream/lib/duckdbClient', () => ({ terminateDatabase: jest.fn() }));
 jest.mock('features/DataStream/lib/opfsCache', () => ({ getCacheKey: () => 'vpu-01' }));
 jest.mock('features/DataStream/lib/s3Utils', () => ({
@@ -37,11 +35,12 @@ jest.mock('features/DataStream/lib/queryData', () => ({
 }));
 
 const queryData = require('features/DataStream/lib/queryData');
-const { TimeseriesLoader } = require('features/DataStream/views/DatastreamView');
+const { loadVpu } = require('features/DataStream/actions/loadVpu');
 const { DataMenuLoading } = require('features/DataStream/components/forecast/dataMenu');
 
 const initialTimeseriesState = useTimeSeriesStore.getState();
 const initialDataStreamState = useDataStreamStore.getState();
+const initialVpuState = useVPUStore.getState();
 
 const load = (args) => act(async () => {
   await useTimeSeriesStore.getState().loadTimeseries(args);
@@ -51,6 +50,7 @@ beforeEach(() => {
   // Both stores, because a cache_key surviving one test lets the vpu effect run in the next.
   useTimeSeriesStore.setState(initialTimeseriesState, true);
   useDataStreamStore.setState(initialDataStreamState, true);
+  useVPUStore.setState(initialVpuState, true);
   // resetMocks is on for this project, which strips the factory implementations above.
   queryData.getTimeseries.mockResolvedValue([{ time: '2022-08-01T00:00:00Z', flow: 1.5 }]);
   queryData.checkForTable.mockResolvedValue(true);
@@ -232,25 +232,75 @@ describe('superseded loads', () => {
 });
 
 describe('vpu load failures', () => {
-  it('can be retried by requesting the same cache key again', async () => {
+  it('can be retried by asking for the same vpu again', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
     queryData.checkForTable.mockRejectedValueOnce(new Error('s3 unreachable'));
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
 
-    render(<TimeseriesLoader />);
-
-    await act(async () => {
-      useDataStreamStore.getState().set_cache_key('vpu-01');
-    });
+    await act(async () => { await loadVpu(); });
     expect(queryData.checkForTable).toHaveBeenCalledTimes(1);
     expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load VPU data/);
 
-    // Same cache key: without a request counter this is a no-op and the load can never rerun.
-    await act(async () => {
-      useDataStreamStore.getState().set_cache_key('vpu-01');
-    });
+    // Asking again is the retry. The effect this replaced keyed on cache_key, so a repeat
+    // request for the same vpu changed nothing and could never re-run.
+    await act(async () => { await loadVpu(); });
+
     expect(queryData.checkForTable).toHaveBeenCalledTimes(2);
     expect(useTimeSeriesStore.getState().loadingText).toBe('');
-
     consoleError.mockRestore();
+  });
+
+  it('says so when the vpu has no data, and leaves it said', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.checkForTable.mockResolvedValue(false);
+    queryData.loadVpuData.mockRejectedValue(new Error('404'));
+    useDataStreamStore.setState({ cache_key: 'vpu-99' });
+
+    await act(async () => { await loadVpu(); });
+
+    expect(useTimeSeriesStore.getState().loadingText).toBe('No data available for selected VPU');
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('does nothing without a vpu selected', async () => {
+    await act(async () => { await loadVpu(); });
+    expect(queryData.checkForTable).not.toHaveBeenCalled();
+  });
+
+  it('lets the newest vpu request win', async () => {
+    let releaseFirst;
+    queryData.checkForTable
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }))
+      .mockResolvedValue(true);
+
+    useDataStreamStore.setState({ cache_key: 'vpu-A' });
+    const first = loadVpu();
+
+    useDataStreamStore.setState({ cache_key: 'vpu-B' });
+    await act(async () => { await loadVpu(); });
+
+    await act(async () => {
+      releaseFirst(true);
+      await first;
+    });
+
+    // Only vpu-B may continue past its table check; the abandoned vpu-A must write nothing.
+    expect(queryData.getFeatureIDs).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads the vpu and charts the selected feature', async () => {
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    queryData.getVariables.mockResolvedValue(['flow', 'precipitation']);
+    queryData.getDistinctFeatureIds.mockResolvedValue(['wb-1']);
+    queryData.getDistinctTimes.mockResolvedValue(['2022-08-01T00:00:00Z']);
+    queryData.getVpuVariableFlat.mockResolvedValue(Float32Array.from([1]));
+
+    await act(async () => { await loadVpu(); });
+
+    expect(useDataStreamStore.getState().variables).toEqual(['flow', 'precipitation']);
+    expect(useTimeSeriesStore.getState().variable).toBe('flow');
+    expect(useVPUStore.getState().valuesByVar.flow).toHaveLength(1);
+    expect(useTimeSeriesStore.getState().loadingText).toBe('');
   });
 });
