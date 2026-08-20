@@ -315,6 +315,34 @@ export async function getFilesFromCache() {
   return files;
 }
 
+const PARQUET_MAGIC = "PAR1";
+const ARROW_MAGIC = "ARROW1";
+
+const magicFor = (key) => {
+  if (isParquetFile(key)) return PARQUET_MAGIC;
+  if (isArrowFile(key)) return ARROW_MAGIC;
+  return null;
+};
+
+const readMagic = async (file, start, length) =>
+  ascii4(new Uint8Array(await file.slice(start, start + length).arrayBuffer()));
+
+/**
+ * Whether a cached file is a complete data file rather than the remains of a failed download.
+ *
+ * getFileHandle with create creates the entry at once, and the bytes go to a .crswap that only
+ * swaps in on close, so a reload mid-download leaves 0 bytes behind. Parquet brackets itself
+ * with PAR1 at both ends, so a truncated file is detectable too -- 8 bytes read either way.
+ */
+async function isCompleteDataFile(file, key) {
+  const magic = magicFor(key);
+  if (!magic) return file.size > 0;
+  if (file.size < magic.length * 2) return false;
+  if (await readMagic(file, 0, magic.length) !== magic) return false;
+  if (magic !== PARQUET_MAGIC) return true;
+  return await readMagic(file, file.size - PARQUET_MAGIC.length, PARQUET_MAGIC.length) === magic;
+}
+
 export async function statFromCache(key) {
   const dir = await getCacheDir();
   if (!dir) return null;
@@ -323,6 +351,12 @@ export async function statFromCache(key) {
   try {
     const fileHandle = await dir.getFileHandle(safeName);
     const file = await fileHandle.getFile();
+    if (!(await isCompleteDataFile(file, key))) {
+      // Callers skip the download when this returns anything, so a half file is permanent.
+      console.warn("Discarding an incomplete cached file:", key, file.size, "bytes");
+      await deleteFileFromCache(key);
+      return null;
+    }
     return { safeName, sizeBytes: file.size };
   } catch {
     return null;

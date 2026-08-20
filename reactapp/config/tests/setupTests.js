@@ -17,6 +17,19 @@ const { TextEncoder, TextDecoder } = require('util');
 if (!global.TextEncoder) global.TextEncoder = TextEncoder;
 if (!global.TextDecoder) global.TextDecoder = TextDecoder;
 
+// jsdom's Blob has slice but no arrayBuffer, which anything reading a file's bytes needs --
+// the cache checks a parquet's PAR1 markers that way. FileReader is present, so this bridges it.
+if (typeof Blob !== 'undefined' && !Blob.prototype.arrayBuffer) {
+  Blob.prototype.arrayBuffer = function arrayBuffer() {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(this);
+    });
+  };
+}
+
 // Setup mocked Tethys API.
 //
 // Loaded defensively because ./mocks/server.js cannot currently be imported at all. It still
