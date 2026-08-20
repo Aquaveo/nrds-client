@@ -65,13 +65,15 @@ function VariablesMenu() {
     const id = feature_id.split('-')[1]; 
 
     try {
-      const flat = await getVpuVariableFlat(cacheKey, opt.value);
+      // Neither query needs the other's result, so waiting for the first before starting the
+      // second doubled the time before anything appeared.
+      const [flat, series] = await Promise.all([
+        getVpuVariableFlat(cacheKey, opt.value),
+        getTimeseries(id, cacheKey, opt.value),
+      ]);
       if (!isMountedRef.current || requestId !== requestIdRef.current) return;
       setVarData(opt.value, flat);
-
       set_variable(opt.value);
-      const series = await getTimeseries(id, cacheKey, opt.value);
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
 
       const xy = series.map((d) => ({
         x: new Date(d.time),
