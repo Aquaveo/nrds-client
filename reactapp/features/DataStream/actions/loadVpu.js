@@ -44,12 +44,13 @@ export async function loadVpu() {
   const superseded = () => generation !== currentVpuGeneration();
   const timeseries = useTimeSeriesStore.getState();
 
-  timeseries.reset();
-  useVPUStore.getState().resetVPU();
-  beginLoading();
-  timeseries.set_loading_text('Loading feature properties...');
-
+  // All inside the try: a throw before the finally would defer every later click for good.
   try {
+    timeseries.reset();
+    useVPUStore.getState().resetVPU();
+    beginLoading();
+    timeseries.set_loading_text('Loading feature properties...');
+
     const tableExists = await checkForTable(cacheKey);
     if (superseded()) return;
 

@@ -48,10 +48,12 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
   // Superseded by a newer series load, or by a vpu load that replaced the table underneath.
   const superseded = () => !series.isCurrent(ticket) || generation !== currentVpuGeneration();
   const id = targetId.split('-')[1];
-  store.getState().reset_series();
-  beginLoading();
-  store.setState({ loadingText: 'Loading feature properties...', last_error: null });
+  // Inside the try for the same reason as loadVpu: the finally is what releases the count.
   try {
+    store.getState().reset_series();
+    beginLoading();
+    store.setState({ loadingText: 'Loading feature properties...', last_error: null });
+
     const rows = await getTimeseries(id, cacheKey, requestedVariable);
     if (superseded()) return;
     const points = rows.map((d) => ({ x: new Date(d.time), y: d[requestedVariable] }));

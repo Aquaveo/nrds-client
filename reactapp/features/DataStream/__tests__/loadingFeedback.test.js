@@ -399,6 +399,40 @@ describe('failures are readable without parsing prose', () => {
   });
 });
 
+describe('the in-flight counters always come back down', () => {
+  it('does not wedge clicks when the vpu reset itself throws', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    const resetVPU = useVPUStore.getState().resetVPU;
+    useVPUStore.setState({
+      resetVPU: () => { throw new Error('reset exploded'); },
+    });
+
+    await act(async () => { await loadVpu(); });
+    useVPUStore.setState({ resetVPU });
+
+    // A leaked vpu counter would defer every later click for the life of the page.
+    await load({ featureId: 'wb-1' });
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('leaves loading false when a series load throws before its fetch', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const reset_series = useTimeSeriesStore.getState().reset_series;
+    useTimeSeriesStore.setState({
+      reset_series: () => { throw new Error('reset exploded'); },
+    });
+
+    await load({ featureId: 'wb-2' });
+    useTimeSeriesStore.setState({ reset_series });
+
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+    consoleError.mockRestore();
+  });
+});
+
 describe('a vpu load and a series load together', () => {
   const deferred = () => {
     let release;
