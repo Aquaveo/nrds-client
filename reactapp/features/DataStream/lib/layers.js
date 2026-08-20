@@ -49,39 +49,51 @@ export const reorderLayers = (map) => {
   });
 };
 
-export const getCentroid = (feature) => {
-  
-    const { type, coordinates } = feature.geometry;
-    let lon = null;
-    let lat = null;
-    if (type === 'Point' && Array.isArray(coordinates)) {
-      // GeoJSON Point: [lon, lat]
-      lon = coordinates[0];
-      lat = coordinates[1];
-      return { lon, lat };
-    } else if (type === 'Polygon' && Array.isArray(coordinates)) {
-      // Use outer ring to compute a simple centroid
-      const outerRing = coordinates[0] || [];
-      if (outerRing.length > 0) {
-        let sumLon = 0;
-        let sumLat = 0;
-        let count = 0;
-        for (const coord of outerRing) {
-          if (!Array.isArray(coord) || coord.length < 2) continue;
-          sumLon += coord[0];
-          sumLat += coord[1];
-          count += 1;
-        }
-        if (count > 0) {
-          lon = sumLon / count;
-          lat = sumLat / count;
-          return { lon, lat };
-        }
-      }
-    }
+const isPosition = (c) =>
+  Array.isArray(c) && c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]);
 
-    return {lon, lat};
+/**
+ * The positions that describe a geometry's outline.
+ *
+ * Outer rings only for polygons: a hole should not pull a catchment's centre around. Every
+ * geometry type the tiles can carry is listed, because the version of this that handled only
+ * Point and Polygon returned nothing for a MultiPolygon catchment -- and a null centre sent
+ * the map to 0,0 in the Gulf of Guinea.
+ */
+const positionsOf = (geometry) => {
+  const { type, coordinates } = geometry ?? {};
+  if (!Array.isArray(coordinates)) return [];
+  switch (type) {
+    case 'Point':
+      return [coordinates];
+    case 'MultiPoint':
+    case 'LineString':
+      return coordinates;
+    case 'MultiLineString':
+      return coordinates.flat();
+    case 'Polygon':
+      return coordinates[0] ?? [];
+    case 'MultiPolygon':
+      return coordinates.flatMap((polygon) => polygon?.[0] ?? []);
+    default:
+      return [];
   }
+};
+
+/** The mean of a geometry's outline positions, or nulls when it has none to average. */
+export const getCentroid = (feature) => {
+  const positions = positionsOf(feature?.geometry).filter(isPosition);
+  if (positions.length === 0) return { lon: null, lat: null };
+
+  let sumLon = 0;
+  let sumLat = 0;
+  for (const [lon, lat] of positions) {
+    sumLon += lon;
+    sumLat += lat;
+  }
+  return { lon: sumLon / positions.length, lat: sumLat / positions.length };
+};
+
 export const symbologyColors = (theme) => ({
       nexusFill: theme === 'dark' ? '#4f5b67' : '#1f78b4',
       nexusStroke: theme === 'dark' ? '#e9ecef' : '#ffffff',

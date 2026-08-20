@@ -353,8 +353,11 @@ const MainMap = () => {
 
     if (!map) return;
 
-    const lat = selectedMapFeature.lat || selectedMapFeature.latitude;
-    const lon = selectedMapFeature.lon || selectedMapFeature.longitude;
+    // ?? not ||, so a feature on the equator or the prime meridian keeps its real coordinate.
+    const lat = selectedMapFeature.lat ?? selectedMapFeature.latitude;
+    const lon = selectedMapFeature.lon ?? selectedMapFeature.longitude;
+    // Without this a geometry we cannot place flies the map to 0,0, off the coast of Africa.
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     map.flyTo({
       center: [lon, lat],
       zoom: 11,
