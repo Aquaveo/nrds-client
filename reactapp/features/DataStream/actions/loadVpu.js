@@ -10,12 +10,17 @@ import {
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import { loadTimeseries } from 'features/DataStream/actions/loadTimeseries';
+import {
+  beginLoading,
+  currentVpuGeneration,
+  endLoading,
+  endVpuLoad,
+  startVpuLoad,
+} from 'features/DataStream/actions/loadState';
 import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
 import { useVPUStore, useFeatureStore } from 'features/DataStream/store/Layers';
 import { useCacheTablesStore } from 'features/DataStream/store/CacheTables';
 
-// Only the newest request may write. This replaces the alive flag the effect closed over.
-let latestRequest = 0;
 
 /**
  * Bring the currently selected vpu's data into the stores, then chart the selected feature.
@@ -34,13 +39,14 @@ export async function loadVpu() {
   const { cache_key: cacheKey, vpu, set_variables } = useDataStreamStore.getState();
   if (!cacheKey) return;
 
-  const requestId = ++latestRequest;
-  const superseded = () => requestId !== latestRequest;
+  // Bumped before any await, so a series load already in flight stops writing immediately.
+  const generation = startVpuLoad();
+  const superseded = () => generation !== currentVpuGeneration();
   const timeseries = useTimeSeriesStore.getState();
 
   timeseries.reset();
   useVPUStore.getState().resetVPU();
-  timeseries.set_loading(true);
+  beginLoading();
   timeseries.set_loading_text('Loading feature properties...');
 
   try {
@@ -86,16 +92,19 @@ export async function loadVpu() {
 
     // Read at the point of use: the selection can have moved on while the vpu was loading.
     const { selected_feature } = useFeatureStore.getState();
-    await loadTimeseries({ featureId: selected_feature?._id ?? null });
+    const featureId = selected_feature?._id ?? null;
+    await loadTimeseries({ featureId, vpuGeneration: generation });
     if (superseded()) return;
 
-    timeseries.set_loading_text('');
+    // Only clear when nothing charted. Otherwise the series load owns this message, and
+    // clearing it here is what used to erase its failure before anyone could read it.
+    if (!featureId) timeseries.set_loading_text('');
   } catch (err) {
     if (superseded()) return;
     timeseries.set_loading_text(`Failed to load VPU data for cacheKey: ${cacheKey}`);
     console.error('Failed to load VPU data for cacheKey:', cacheKey, err);
   } finally {
-    // A plain if: returning from finally would discard a propagating exception.
-    if (!superseded()) timeseries.set_loading(false);
+    endVpuLoad();
+    endLoading();
   }
 }

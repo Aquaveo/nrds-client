@@ -22,10 +22,11 @@ function VariablesMenu() {
     }))
   );
   
-  const { variable, set_variable, feature_id } = useTimeSeriesStore(
+  const { variable, set_variable, set_loading_text, feature_id } = useTimeSeriesStore(
     useShallow((state) => ({
       variable: state.variable,
       set_variable: state.set_variable,
+      set_loading_text: state.set_loading_text,
       feature_id: state.feature_id,
     }))
   );
@@ -52,6 +53,7 @@ function VariablesMenu() {
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    const requestCacheKey = cacheKey;
 
     try {
       // Reusing the vpu store's cached array skips a query measured at about 800 ms.
@@ -59,14 +61,20 @@ function VariablesMenu() {
 
       // Both start together; the variable is set last so the layer never reads absent values.
       const [flat] = await Promise.all([
-        cached ?? getVpuVariableFlat(cacheKey, opt.value),
+        cached ?? getVpuVariableFlat(requestCacheKey, opt.value),
         loadTimeseries({ variable: opt.value }),
       ]);
       if (requestId !== requestIdRef.current) return;
+      if (useDataStreamStore.getState().cache_key !== requestCacheKey) return;
+      // The vpu moved on while this was in flight, so these values describe a table that is
+      // no longer loaded. valuesByVar is keyed by variable alone and would not show the swap.
       setVarData(opt.value, flat);
       set_variable(opt.value);
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
+      // Say so: the chart may already have changed underneath, and silence here is what made
+      // the map and the chart disagree with nothing on screen to explain it.
+      set_loading_text(`Failed to load ${opt.value} for the map`);
       console.error('Failed to change variable', err);
     }
   }, [
@@ -75,6 +83,7 @@ function VariablesMenu() {
     feature_id,
     setVarData,
     set_variable,
+    set_loading_text,
   ]);
 
   return (

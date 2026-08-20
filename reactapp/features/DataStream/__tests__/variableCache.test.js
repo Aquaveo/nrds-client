@@ -103,4 +103,43 @@ describe('changing variable', () => {
     // resetVPU empties the cache, so a hit can never be another vpu's data.
     expect(queryData.getVpuVariableFlat).toHaveBeenCalledWith('vpu-01', 'precipitation');
   });
+
+  it('discards values whose vpu was swapped out while they were loading', async () => {
+    let release;
+    queryData.getVpuVariableFlat.mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; })
+    );
+    render(<VariablesMenu />);
+
+    // Each step gets its own act: overlapping them corrupts React's queue for later tests.
+    await act(async () => {
+      screen.getByText('pick flow').click();
+    });
+    act(() => {
+      useDataStreamStore.setState({ cache_key: 'vpu-99' });
+    });
+    await act(async () => {
+      release(Float32Array.from([1, 2, 3]));
+    });
+
+    // valuesByVar is keyed by variable alone, so writing this would hand the new vpu the old
+    // one's numbers under a name it also uses.
+    expect(useVPUStore.getState().valuesByVar.flow).toBeUndefined();
+    expect(useTimeSeriesStore.getState().variable).toBe('');
+  });
+
+  it('says so when the map values fail to load', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.getVpuVariableFlat.mockRejectedValueOnce(new Error('query failed'));
+    render(<VariablesMenu />);
+
+    await act(async () => {
+      screen.getByText('pick flow').click();
+    });
+
+    // The chart may already have moved to the new variable, so silence here leaves the map and
+    // the chart disagreeing with nothing on screen to explain it.
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load flow/);
+    consoleError.mockRestore();
+  });
 });

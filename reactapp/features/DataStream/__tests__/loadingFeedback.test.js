@@ -13,7 +13,7 @@ import { render, screen, act } from '@testing-library/react';
 
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
-import { useVPUStore } from 'features/DataStream/store/Layers';
+import { useVPUStore, useFeatureStore } from 'features/DataStream/store/Layers';
 
 // These reach for duckdb-wasm and s3, neither of which runs in jsdom.
 jest.mock('features/DataStream/lib/duckdbClient', () => ({ terminateDatabase: jest.fn() }));
@@ -37,11 +37,13 @@ jest.mock('features/DataStream/lib/queryData', () => ({
 const queryData = require('features/DataStream/lib/queryData');
 const { loadVpu } = require('features/DataStream/actions/loadVpu');
 const { loadTimeseries } = require('features/DataStream/actions/loadTimeseries');
+const { resetLoadState } = require('features/DataStream/actions/loadState');
 const { DataMenuLoading } = require('features/DataStream/components/forecast/dataMenu');
 
 const initialTimeseriesState = useTimeSeriesStore.getState();
 const initialDataStreamState = useDataStreamStore.getState();
 const initialVpuState = useVPUStore.getState();
+const initialFeatureState = useFeatureStore.getState();
 
 const load = (args) => act(async () => {
   await loadTimeseries(args);
@@ -52,6 +54,8 @@ beforeEach(() => {
   useTimeSeriesStore.setState(initialTimeseriesState, true);
   useDataStreamStore.setState(initialDataStreamState, true);
   useVPUStore.setState(initialVpuState, true);
+  useFeatureStore.setState(initialFeatureState, true);
+  resetLoadState();
   // resetMocks is on for this project, which strips the factory implementations above.
   queryData.getTimeseries.mockResolvedValue([{ time: '2022-08-01T00:00:00Z', flow: 1.5 }]);
   queryData.checkForTable.mockResolvedValue(true);
@@ -301,5 +305,73 @@ describe('vpu load failures', () => {
     expect(useTimeSeriesStore.getState().variable).toBe('flow');
     expect(useVPUStore.getState().valuesByVar.flow).toHaveLength(1);
     expect(useTimeSeriesStore.getState().loadingText).toBe('');
+  });
+});
+
+describe('a vpu load and a series load together', () => {
+  const deferred = () => {
+    let release;
+    const promise = new Promise((resolve) => { release = resolve; });
+    return { promise, release };
+  };
+
+  it('keeps the series failure message its own vpu load produced', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    useFeatureStore.setState({ selected_feature: { _id: 'wb-77' } });
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    queryData.getTimeseries.mockRejectedValueOnce(new Error('table gone'));
+
+    await act(async () => { await loadVpu(); });
+
+    // loadVpu used to clear this unconditionally, erasing the only report of the failure.
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load timeseries/);
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('still clears the message when there was no feature to chart', async () => {
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+
+    await act(async () => { await loadVpu(); });
+
+    expect(useTimeSeriesStore.getState().loadingText).toBe('');
+  });
+
+  it('defers a click that lands while the vpu is still loading', async () => {
+    const gate = deferred();
+    queryData.checkForTable.mockImplementationOnce(() => gate.promise);
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+
+    const vpuLoad = loadVpu();
+    await load({ featureId: 'wb-88' });
+
+    // The table it would read is being rebuilt, so the selection is recorded and nothing else.
+    expect(useTimeSeriesStore.getState().feature_id).toBe('wb-88');
+    expect(queryData.getTimeseries).not.toHaveBeenCalled();
+
+    useFeatureStore.setState({ selected_feature: { _id: 'wb-88' } });
+    await act(async () => { gate.release(true); await vpuLoad; });
+
+    // The vpu load's own closing call picks the selection up once the table is there.
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+    expect(queryData.getTimeseries.mock.calls[0][0]).toBe('88');
+  });
+
+  it('stops a series load that a vpu load has overtaken', async () => {
+    const gate = deferred();
+    queryData.getTimeseries.mockImplementationOnce(() => gate.promise);
+    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+
+    const series = loadTimeseries({ featureId: 'wb-11' });
+    await act(async () => { await loadVpu(); });
+
+    await act(async () => {
+      gate.release([{ time: '2022-08-01T00:00:00Z', flow: 5 }]);
+      await series;
+    });
+
+    // Its table was replaced mid-flight, so it must not chart or claim to be loaded.
+    expect(useTimeSeriesStore.getState().series).toHaveLength(0);
+    expect(useTimeSeriesStore.getState().last_loaded_key).toBe(null);
   });
 });
