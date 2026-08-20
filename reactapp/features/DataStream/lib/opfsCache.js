@@ -2,6 +2,7 @@ import appAPI from "features/Tethys/services/api/app";
 import { tableFromIPC  } from "apache-arrow";
 import { getNCFiles } from "./s3Utils";
 import { DuckDBDataProtocol } from "@duckdb/duckdb-wasm";
+import { getDuckDB } from "./duckdbClient";
 
 
 const CACHE_DIR = "nrds-cache";
@@ -99,7 +100,7 @@ const sqlIdent = (s) => `"${String(s).replace(/"/g, '""')}"`;
 const sqlStr = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
 const safeNameForKey = (key) => encodeURIComponent(key);
-const tableNameForKey = (key) => String(key).replace(/\.(arrow|parquet)$/i, "");
+export const tableNameForKey = (key) => String(key).replace(/\.(arrow|parquet)$/i, "");
 
 function isNCFile(key) { return key.endsWith('.nc'); }
 
@@ -223,8 +224,10 @@ export async function getFilesFromCache() {
 
   for await (const handle of dir.values()) {
     if (handle.kind !== "file") continue;
+    const id = decodeURIComponent(handle.name);
+    // An interrupted download leaves a .crswap behind; it is not a cached table.
+    if (!isArrowFile(id) && !isParquetFile(id)) continue;
     const file = await handle.getFile();
-    const id = decodeURIComponent(file.name);
     files.push({id: id, name: id.replaceAll("_", "/"), size: formatBytes(file.size)});
   }
   return files;
@@ -244,10 +247,29 @@ export async function statFromCache(key) {
   }
 }
 
+/**
+ * Let go of a cached file inside duckdb so the browser will allow it to be removed.
+ *
+ * createTableFromOPFS registers each file with BROWSER_FSACCESS, which holds a sync access
+ * handle open for the session. OPFS refuses removeEntry on such a file with
+ * NoModificationAllowedError, so deletes appeared to work and the file was still there after a
+ * reload. Dropping an unregistered name is not an error worth reporting.
+ */
+async function releaseFromDuckDB(safeName) {
+  try {
+    const db = await getDuckDB();
+    await db.dropFile(`${CACHE_DIR}/${safeName}`);
+  } catch {
+    // Not registered, which is the normal case for a file this session never opened.
+  }
+}
+
 export async function deleteFileFromCache(key) {
   const dir = await getCacheDir();
-  if (!dir) return;
-  const safeName = encodeURIComponent(key);
+  if (!dir) return false;
+  const safeName = safeNameForKey(key);
+
+  await releaseFromDuckDB(safeName);
   try {
     await dir.removeEntry(safeName);
     return true;
@@ -259,10 +281,29 @@ export async function deleteFileFromCache(key) {
 
 export async function clearCache() {
   const dir = await getCacheDir();
-  if (!dir) return;
-  for await (const handle of dir.values()) {
-    await dir.removeEntry(handle.name);
+  if (!dir) return 0;
+
+  // Every registered file at once, for the same reason deleteFileFromCache drops one.
+  try {
+    const db = await getDuckDB();
+    await db.dropFiles();
+  } catch (e) {
+    console.warn("Could not drop registered files before clearing the cache:", e);
   }
+
+  const names = [];
+  for await (const handle of dir.values()) names.push(handle.name);
+
+  let removed = 0;
+  for (const name of names) {
+    try {
+      await dir.removeEntry(name);
+      removed += 1;
+    } catch (e) {
+      console.error("Error clearing cached file:", name, e);
+    }
+  }
+  return removed;
 }
 
 export function getCacheKey(model, date, forecast, cycle, ensemble, vpu, outputFile) {
