@@ -115,7 +115,7 @@ function InitialS3Loader() {
   return null;
 }
 
-function TimeseriesLoader() {
+export function TimeseriesLoader() {
   
   const { variables,cacheKey, forecast, vpu, set_variables } = useDataStreamStore(
     useShallow((s) => ({
@@ -142,10 +142,9 @@ function TimeseriesLoader() {
     useShallow((s) => ({ prefix: s.prefix }))
   );
 
-  const { feature_id, loading, variable, set_feature_id, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
+  const { feature_id, variable, set_feature_id, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
     useShallow((s) => ({ 
       feature_id: s.feature_id,
-      loading: s.loading,
       variable: s.variable,
       set_feature_id: s.set_feature_id,
       set_variable: s.set_variable,
@@ -170,7 +169,7 @@ function TimeseriesLoader() {
 
     async function getTsData(){
 
-      if (!feature_id || loading ) return;
+      if (!feature_id) return;
       reset_series();
       const id = feature_id.split('-')[1];
       set_loading(true);
@@ -213,7 +212,7 @@ function TimeseriesLoader() {
    let alive = true;
 
    async function getVPUData(){
-    if (!cacheKey || loading ) return;
+    if (!cacheKey) return;
     reset();
     resetVPU();
     // const vpu_gpkg = makeGpkgUrl(vpu);

@@ -58,10 +58,9 @@ const MainMap = () => {
       enabledHovering: s.hovered_enabled,
     }))
   );
-   const { selectedFeatureId, loading, set_feature_id } = useTimeSeriesStore(
+  const { selectedFeatureId, set_feature_id } = useTimeSeriesStore(
     useShallow((s) => ({
       selectedFeatureId: s.feature_id,
-      loading: s.loading,
       set_feature_id: s.set_feature_id,
     }))
   );
@@ -383,10 +382,7 @@ const MainMap = () => {
   }, [isNexusVisible, isCatchmentsVisible]);
 
   const handleMapClick = async (event) => {
-   if (loading) {
-      return;
-    }
-
+    // Deliberately unguarded by loading: the fetch effects cancel their own stale work.
     const map = event.target;
 
     if (layersToQuery.length === 0) return;

@@ -30,7 +30,7 @@ function useEvent(fn) {
   return React.useCallback((...args) => ref.current(...args), []);
 }
 
-const DataMenuLoading = React.memo(function DataMenuLoading() {
+export const DataMenuLoading = React.memo(function DataMenuLoading() {
   const { loading, loadingText } = useTimeSeriesStore(
     useShallow((s) => ({
       loading: s.loading,
@@ -39,19 +39,17 @@ const DataMenuLoading = React.memo(function DataMenuLoading() {
   );
 
   return (
-    <LoadingMessage>
+    <LoadingMessage role="status" aria-live="polite">
+      {/* Text sits outside the loading gate: failures set it and then clear loading. */}
       {loading && (
-        <>
-          <Spinner
-            as="span"
-            size="sm"
-            animation="border"
-            role="status"
-            aria-hidden="true"
-          />
-          &nbsp; {loadingText}
-        </>
+        <Spinner
+          as="span"
+          size="sm"
+          animation="border"
+          aria-hidden="true"
+        />
       )}
+      {loadingText && <span>&nbsp;{loadingText}</span>}
     </LoadingMessage>
   );
 });
