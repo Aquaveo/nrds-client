@@ -1,41 +1,32 @@
-import React, { useMemo, Fragment, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, Fragment, useCallback, useRef } from 'react';
 import { Row, IconLabel } from '../styles/Styles';
 import SelectComponent from '../SelectComponent';
-import { getTimeseries, getVpuVariableFlat } from 'features/DataStream/lib/queryData';
+import { getVpuVariableFlat } from 'features/DataStream/lib/queryData';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import { useVPUStore } from 'features/DataStream/store/Layers';
 import { useShallow } from 'zustand/react/shallow';
-import { makeTitle } from 'features/DataStream/lib/utils';
 import {
   VariableIcon,
 } from 'features/DataStream/lib/layers';
 
 function VariablesMenu() {
-  const isMountedRef = useRef(true);
+  // No mounted flag: everything below writes to stores rather than component state, so a
+  // late result cannot touch an unmounted component. requestIdRef alone keeps ordering.
   const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const{ forecast, variables, cacheKey } = useDataStreamStore(
+  const{ variables, cacheKey } = useDataStreamStore(
     useShallow((state) => ({
-      forecast: state.forecast,
       variables: state.variables,
       cacheKey: state.cache_key,
     }))
   );
   
-  const { variable, set_variable, set_series, set_layout, set_last_loaded_key, feature_id } = useTimeSeriesStore(
+  const { variable, set_variable, loadTimeseries, feature_id } = useTimeSeriesStore(
     useShallow((state) => ({
       variable: state.variable,
       set_variable: state.set_variable,
-      set_series: state.set_series,
-      set_layout: state.set_layout,
-      set_last_loaded_key: state.set_last_loaded_key,
+      loadTimeseries: state.loadTimeseries,
       feature_id: state.feature_id,
     }))
   );
@@ -62,45 +53,30 @@ function VariablesMenu() {
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-    const id = feature_id.split('-')[1]; 
 
     try {
-      // Neither query needs the other's result, so waiting for the first before starting the
-      // second doubled the time before anything appeared.
-      const [flat, series] = await Promise.all([
+      // The map's flat array and the chart's series need each other's results not at all, so
+      // both start together. Charting is the store's job; this menu only owns the map data
+      // and the selected variable, which is set last so the flowpath layer never looks up a
+      // variable whose values have not arrived.
+      const [flat] = await Promise.all([
         getVpuVariableFlat(cacheKey, opt.value),
-        getTimeseries(id, cacheKey, opt.value),
+        loadTimeseries({ variable: opt.value }),
       ]);
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) return;
       setVarData(opt.value, flat);
       set_variable(opt.value);
-
-      const xy = series.map((d) => ({
-        x: new Date(d.time),
-        y: d[opt.value],
-      }));
-      set_series(xy);
-      set_layout({
-        yaxis: opt.value,
-        xaxis: 'Time',
-        title: makeTitle(forecast, feature_id),
-      });
-      // Same bookkeeping as the click path, so clicking this feature next does not refetch.
-      set_last_loaded_key(`${cacheKey}|${opt.value}|${feature_id}`);
     } catch (err) {
-      if (!isMountedRef.current || requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) return;
       console.error('Failed to change variable', err);
     }
   }, [
     availableVariablesList,
     cacheKey,
     feature_id,
-    forecast,
     setVarData,
     set_variable,
-    set_series,
-    set_layout,
-    set_last_loaded_key,
+    loadTimeseries,
   ]);
 
   return (

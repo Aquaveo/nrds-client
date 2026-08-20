@@ -11,7 +11,6 @@ import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
 import { initialS3Data, makePrefix } from 'features/DataStream/lib/s3Utils';
 import { getCacheKey } from 'features/DataStream/lib/opfsCache';
 import { checkForTable, 
-  getTimeseries, 
   loadVpuData, 
   getFeatureIDs, 
   getDistinctFeatureIds, 
@@ -20,7 +19,6 @@ import { checkForTable,
   getVariables 
 } from 'features/DataStream/lib/queryData';
 import { terminateDatabase } from 'features/DataStream/lib/duckdbClient';
-import { makeTitle } from 'features/DataStream/lib/utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useShallow } from "zustand/react/shallow";
 
@@ -117,12 +115,10 @@ function InitialS3Loader() {
 
 export function TimeseriesLoader() {
   
-  const { variables,cacheKey, cache_request_id, forecast, vpu, set_variables } = useDataStreamStore(
+  const { cacheKey, cache_request_id, vpu, set_variables } = useDataStreamStore(
     useShallow((s) => ({
-      variables: s.variables,
       cacheKey: s.cache_key,
       cache_request_id: s.cache_request_id,
-      forecast: s.forecast,
       vpu: s.vpu,
       set_variables: s.set_variables,
     }))
@@ -143,20 +139,13 @@ export function TimeseriesLoader() {
     useShallow((s) => ({ prefix: s.prefix }))
   );
 
-  const { feature_id, feature_request_id, last_loaded_key, variable, set_feature_id, set_last_loaded_key, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
-    useShallow((s) => ({ 
-      feature_id: s.feature_id,
-      feature_request_id: s.feature_request_id,
-      last_loaded_key: s.last_loaded_key,
+  const { variable, loadTimeseries, set_variable, set_loading_text, set_loading, reset } = useTimeSeriesStore(
+    useShallow((s) => ({
       variable: s.variable,
-      set_feature_id: s.set_feature_id,
-      set_last_loaded_key: s.set_last_loaded_key,
+      loadTimeseries: s.loadTimeseries,
       set_variable: s.set_variable,
       set_loading_text: s.set_loading_text,
-      set_series: s.set_series,
-      set_layout: s.set_layout,
       set_loading: s.set_loading,
-      reset_series: s.reset_series,
       reset: s.reset,
     }))
   );
@@ -168,56 +157,6 @@ export function TimeseriesLoader() {
       resetVPU: s.resetVPU,
     }))
   );
-  useEffect(() => {
-    let alive = true;
-
-    async function getTsData(){
-
-      if (!feature_id) return;
-      const currentVariable = !variable ? variables[0] : variable;
-      const requestKey = `${cacheKey}|${currentVariable}|${feature_id}`;
-      // This exact series is already on screen, so a repeat click has nothing to fetch.
-      if (requestKey === last_loaded_key) return;
-      reset_series();
-      const id = feature_id.split('-')[1];
-      set_loading(true);
-      set_loading_text('Loading feature properties...');
-      try {
-        const series = await getTimeseries(id, cacheKey, currentVariable);
-        if (!alive) return;
-
-        const xy = series.map((d) => ({
-          x: new Date(d.time),
-          y: d[currentVariable],
-        }));
-        set_loading_text(`Loaded ${xy.length} points for id: ${id}`);
-        set_series(xy);
-        set_layout({
-          yaxis: currentVariable,
-          xaxis: '',
-          title: makeTitle(forecast, feature_id),
-        });
-        set_last_loaded_key(requestKey);
-        set_loading_text('');
-      } 
-      catch (err) {
-          if (!alive) return;
-          set_loading_text(`Failed to load timeseries for id: ${feature_id}`);
-          console.error('Failed to load timeseries for', feature_id, err);
-      } finally {
-        if (!alive) return;
-        set_loading(false);
-      }
-   }
-    getTsData();
-
-    return () => {
-      alive = false;
-    };
-    // last_loaded_key is left out on purpose: every click bumps feature_request_id, so the
-    // effect is always recreated with a fresh value of it.
-  }, [feature_id, feature_request_id]);
-
   useEffect( () => {
    let alive = true;
 
@@ -262,7 +201,7 @@ export function TimeseriesLoader() {
       if (!alive) return;
       setAnimationIndex(featureIds, times);
       setVarData(currentVariable, flat);
-      set_feature_id(selected_feature_id);
+      await loadTimeseries({ featureId: selected_feature_id });
 
       set_loading_text('');
     } 

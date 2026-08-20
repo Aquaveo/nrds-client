@@ -134,10 +134,10 @@ const MainMap = () => {
       enabledHovering: s.hovered_enabled,
     }))
   );
-  const { selectedFeatureId, set_feature_id } = useTimeSeriesStore(
+  const { selectedFeatureId, loadTimeseries } = useTimeSeriesStore(
     useShallow((s) => ({
       selectedFeatureId: s.feature_id,
-      set_feature_id: s.set_feature_id,
+      loadTimeseries: s.loadTimeseries,
     }))
   );
 
@@ -406,7 +406,7 @@ const MainMap = () => {
   }, [isNexusVisible, isCatchmentsVisible]);
 
   const handleMapClick = async (event) => {
-    // Deliberately unguarded by loading: the fetch effects cancel their own stale work.
+    // Deliberately unguarded by loading: a newer load supersedes an older one.
     const map = event.target;
 
     if (layersToQuery.length === 0) return;
@@ -431,7 +431,7 @@ const MainMap = () => {
       });
       const vpu_str = `VPU_${feature.properties.vpuid}`;
       if (vpu_str === vpu){
-        set_feature_id(unbiased_id);
+        loadTimeseries({ featureId: unbiased_id });
       }
       set_vpu(vpu_str);
       break;

@@ -1,11 +1,13 @@
 /**
  * Regression tests for catchment-click feedback.
  *
- * Two defects made a click look like nothing happened. A `loading` guard in the click
- * handler and in both fetch effects discarded any selection made while a fetch was in
- * flight, and the status line rendered its text only while `loading` was true -- so the
- * failure message written in `catch` was erased by the `set_loading(false)` in `finally`
- * before a user could read it.
+ * Three defects made a click look like nothing had happened: a loading guard discarded any
+ * selection made while a fetch was in flight, the status line rendered its text only while
+ * loading was true so the failure message was erased before it could be read, and there was
+ * no way to retry because the fetch was driven by an effect keyed on the feature id.
+ *
+ * Loading is now a store action called straight from the event that asks for it, so most of
+ * this exercises the action rather than a rendered component.
  */
 import { render, screen, act } from '@testing-library/react';
 
@@ -24,27 +26,32 @@ jest.mock('features/DataStream/lib/s3Utils', () => ({
   getOptionsFromURL: jest.fn(async () => []),
 }));
 jest.mock('features/DataStream/lib/queryData', () => ({
-  getTimeseries: jest.fn(async () => []),
-  checkForTable: jest.fn(async () => true),
-  loadVpuData: jest.fn(async () => 0),
-  getFeatureIDs: jest.fn(async () => []),
-  getVariables: jest.fn(async () => ['flow']),
-  getDistinctFeatureIds: jest.fn(async () => []),
-  getDistinctTimes: jest.fn(async () => []),
-  getVpuVariableFlat: jest.fn(async () => []),
+  getTimeseries: jest.fn(),
+  checkForTable: jest.fn(),
+  loadVpuData: jest.fn(),
+  getFeatureIDs: jest.fn(),
+  getVariables: jest.fn(),
+  getDistinctFeatureIds: jest.fn(),
+  getDistinctTimes: jest.fn(),
+  getVpuVariableFlat: jest.fn(),
 }));
 
+const queryData = require('features/DataStream/lib/queryData');
 const { TimeseriesLoader } = require('features/DataStream/views/DatastreamView');
 const { DataMenuLoading } = require('features/DataStream/components/forecast/dataMenu');
 
-const queryData = require('features/DataStream/lib/queryData');
 const initialTimeseriesState = useTimeSeriesStore.getState();
 const initialDataStreamState = useDataStreamStore.getState();
 
+const load = (args) => act(async () => {
+  await useTimeSeriesStore.getState().loadTimeseries(args);
+});
+
 beforeEach(() => {
-  // Both stores, because a cache_key surviving one test lets the VPU effect run in the next.
+  // Both stores, because a cache_key surviving one test lets the vpu effect run in the next.
   useTimeSeriesStore.setState(initialTimeseriesState, true);
   useDataStreamStore.setState(initialDataStreamState, true);
+  // resetMocks is on for this project, which strips the factory implementations above.
   queryData.getTimeseries.mockResolvedValue([{ time: '2022-08-01T00:00:00Z', flow: 1.5 }]);
   queryData.checkForTable.mockResolvedValue(true);
   queryData.getFeatureIDs.mockResolvedValue([]);
@@ -58,15 +65,14 @@ describe('status line', () => {
   it('keeps a failure message visible after loading turns false', () => {
     render(<DataMenuLoading />);
 
-    // The order a failed fetch writes these in: message during the catch, flag in the finally.
+    // The order a failed load writes these in: message first, flag cleared after.
     act(() => {
-      useTimeSeriesStore.getState().set_loading(true);
-      useTimeSeriesStore.getState().set_loading_text('Failed to load timeseries for id: wb-101');
+      useTimeSeriesStore.setState({ loading: true, loadingText: 'Failed to load timeseries for id: wb-101' });
     });
     expect(screen.getByText(/Failed to load timeseries/)).toBeInTheDocument();
 
     act(() => {
-      useTimeSeriesStore.getState().set_loading(false);
+      useTimeSeriesStore.setState({ loading: false });
     });
     expect(screen.getByText(/Failed to load timeseries/)).toBeInTheDocument();
   });
@@ -74,131 +80,154 @@ describe('status line', () => {
   it('shows nothing once the text is cleared', () => {
     render(<DataMenuLoading />);
     act(() => {
-      useTimeSeriesStore.getState().set_loading_text('');
-      useTimeSeriesStore.getState().set_loading(false);
+      useTimeSeriesStore.setState({ loading: false, loadingText: '' });
     });
     expect(screen.queryByText(/Failed/)).not.toBeInTheDocument();
   });
 });
 
-describe('selection made during a load', () => {
-  it('still fetches when loading is already true', async () => {
-    act(() => {
-      useTimeSeriesStore.getState().set_loading(true);
-    });
+describe('loadTimeseries', () => {
+  it('records the selection and charts it', async () => {
+    await load({ featureId: 'wb-202' });
 
-    render(<TimeseriesLoader />);
-
-    await act(async () => {
-      useTimeSeriesStore.getState().set_feature_id('wb-202');
-    });
-
-    expect(queryData.getTimeseries).toHaveBeenCalled();
     expect(queryData.getTimeseries.mock.calls[0][0]).toBe('202');
-    // The fetch ran to completion rather than bailing out at a guard.
+    expect(useTimeSeriesStore.getState().feature_id).toBe('wb-202');
     expect(useTimeSeriesStore.getState().series).toHaveLength(1);
     expect(useTimeSeriesStore.getState().loading).toBe(false);
   });
-});
 
-describe('suppressing redundant fetches', () => {
-  const select = async (id) => {
-    await act(async () => {
-      useTimeSeriesStore.getState().set_feature_id(id);
+  it('loads even when a load is already in flight', async () => {
+    act(() => {
+      useTimeSeriesStore.setState({ loading: true });
     });
-  };
 
-  it('does not refetch the feature whose series is already displayed', async () => {
-    render(<TimeseriesLoader />);
+    await load({ featureId: 'wb-202' });
 
-    await select('wb-404');
+    // A loading guard here used to drop the selection with nothing on screen to explain it.
+    expect(queryData.getTimeseries).toHaveBeenCalled();
+    expect(useTimeSeriesStore.getState().series).toHaveLength(1);
+  });
+
+  it('leaves the selected variable to the caller', async () => {
+    await load({ featureId: 'wb-202', variable: 'precipitation' });
+
+    expect(queryData.getTimeseries.mock.calls[0][2]).toBe('precipitation');
+    // The flowpath layer looks up data by store variable, so the action must not move it
+    // ahead of the values arriving.
+    expect(useTimeSeriesStore.getState().variable).toBe('');
+  });
+
+  it('reports a failure and leaves the message on screen', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.getTimeseries.mockRejectedValueOnce(new Error('network down'));
+
+    await load({ featureId: 'wb-303' });
+
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load timeseries/);
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('retries after a failure, because asking again is all it takes', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.getTimeseries.mockRejectedValueOnce(new Error('network down'));
+
+    await load({ featureId: 'wb-303' });
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
 
-    await select('wb-404');
+    await load({ featureId: 'wb-303' });
+
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
+    expect(useTimeSeriesStore.getState().series).toHaveLength(1);
+    expect(useTimeSeriesStore.getState().loadingText).toBe('');
+    consoleError.mockRestore();
+  });
+});
+
+describe('suppressing redundant loads', () => {
+  it('does not reload the feature whose series is already charted', async () => {
+    await load({ featureId: 'wb-404' });
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+
+    await load({ featureId: 'wb-404' });
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
   });
 
-  it('refetches on return, because another feature replaced the series in between', async () => {
-    render(<TimeseriesLoader />);
+  it('reloads on return, because another feature replaced the series in between', async () => {
+    await load({ featureId: 'wb-404' });
+    await load({ featureId: 'wb-505' });
+    await load({ featureId: 'wb-404' });
 
-    await select('wb-404');
-    await select('wb-505');
-    await select('wb-404');
-
-    // Suppressing the third fetch would leave wb-505's points on screen labelled wb-404.
-    expect(queryData.getTimeseries).toHaveBeenCalledTimes(3);
+    // Suppressing the third would leave wb-505's points on screen labelled wb-404.
     expect(queryData.getTimeseries.mock.calls.map((c) => c[0])).toEqual(['404', '505', '404']);
   });
 
-  it('refetches the same feature when the variable changed underneath it', async () => {
-    render(<TimeseriesLoader />);
-
-    await select('wb-404');
+  it('reloads the same feature when the variable changed underneath it', async () => {
+    await load({ featureId: 'wb-404' });
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
 
-    act(() => {
-      useTimeSeriesStore.getState().set_variable('precipitation');
-    });
-
     // Keying suppression on the feature alone would skip this and chart the old variable.
-    await select('wb-404');
+    await load({ featureId: 'wb-404', variable: 'precipitation' });
+
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
     expect(queryData.getTimeseries.mock.calls[1][2]).toBe('precipitation');
   });
 
-  it('refetches the same feature when the vpu changed underneath it', async () => {
-    // Two things independently force this: the vpu is part of the key, and the vpu effect
-    // calls reset(), which clears the key. Belt and braces, deliberately.
-    render(<TimeseriesLoader />);
-
-    await select('wb-404');
+  it('reloads the same feature when the vpu changed underneath it', async () => {
+    await load({ featureId: 'wb-404' });
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
+    act(() => {
       useDataStreamStore.getState().set_cache_key('vpu-16');
     });
+    await load({ featureId: 'wb-404' });
 
-    await select('wb-404');
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
     expect(queryData.getTimeseries.mock.calls[1][1]).toBe('vpu-16');
   });
 
-  it('refetches after the series is cleared', async () => {
-    render(<TimeseriesLoader />);
-
-    await select('wb-404');
-    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
+  it('reloads after the series is cleared', async () => {
+    await load({ featureId: 'wb-404' });
+    act(() => {
       useTimeSeriesStore.getState().reset_series();
     });
-    await select('wb-404');
+
+    await load({ featureId: 'wb-404' });
     expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
+  });
+
+  it('still records the selection when the load is suppressed', async () => {
+    await load({ featureId: 'wb-404' });
+    useTimeSeriesStore.setState({ feature_id: null });
+
+    await load({ featureId: 'wb-404' });
+
+    expect(useTimeSeriesStore.getState().feature_id).toBe('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('re-selecting the same feature', () => {
-  it('refetches after a failure, so a click is a retry', async () => {
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    queryData.getTimeseries.mockRejectedValueOnce(new Error('network down'));
+describe('superseded loads', () => {
+  it('lets the newest request win', async () => {
+    let releaseFirst;
+    queryData.getTimeseries
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }))
+      .mockResolvedValueOnce([
+        { time: '2022-08-01T00:00:00Z', flow: 9 },
+        { time: '2022-08-01T01:00:00Z', flow: 9 },
+      ]);
 
-    render(<TimeseriesLoader />);
+    const first = useTimeSeriesStore.getState().loadTimeseries({ featureId: 'wb-1' });
+    await load({ featureId: 'wb-2' });
 
     await act(async () => {
-      useTimeSeriesStore.getState().set_feature_id('wb-303');
+      releaseFirst([{ time: '2022-08-01T00:00:00Z', flow: 1 }]);
+      await first;
     });
-    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
-    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load timeseries/);
 
-    // Same id as before: the selection itself has to be what triggers the refetch.
-    await act(async () => {
-      useTimeSeriesStore.getState().set_feature_id('wb-303');
-    });
-    expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
-    expect(useTimeSeriesStore.getState().series).toHaveLength(1);
-    expect(useTimeSeriesStore.getState().loadingText).toBe('');
-
-    consoleError.mockRestore();
+    // wb-2 is the selection, so the late wb-1 result must not overwrite its series.
+    expect(useTimeSeriesStore.getState().series).toHaveLength(2);
+    expect(useTimeSeriesStore.getState().feature_id).toBe('wb-2');
   });
 });
 

@@ -16,10 +16,10 @@ const SearchBar = ({ placeholder = 'Search for an id' }) => {
     }))
   );
 
-  const { feature_id, set_feature_id } = useTimeSeriesStore(
+  const { feature_id, loadTimeseries } = useTimeSeriesStore(
     useShallow((s) => ({
       feature_id: s.feature_id,
-      set_feature_id: s.set_feature_id,
+      loadTimeseries: s.loadTimeseries,
     }))
   );
   
@@ -43,7 +43,7 @@ const SearchBar = ({ placeholder = 'Search for an id' }) => {
     });
     const vpu_str = `VPU_${feature.vpuid}`;
     if (vpu_str === vpu){
-      set_feature_id(unbiased_id);
+      loadTimeseries({ featureId: unbiased_id });
     }
     set_vpu(vpu_str);
   }

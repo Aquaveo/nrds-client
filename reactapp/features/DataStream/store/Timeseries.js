@@ -1,5 +1,14 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { getTimeseries } from 'features/DataStream/lib/queryData';
+import { makeTitle } from 'features/DataStream/lib/utils';
+import useDataStreamStore from 'features/DataStream/store/Datastream';
+
+// Only the newest load may write to the store. Selecting a feature used to set state that an
+// effect watched, which meant a counter to make repeat selections visible and a per-effect
+// alive flag to drop superseded work. Selecting is an event, so it calls an action directly
+// and this is the whole of the bookkeeping that replaced both.
+let latestRequest = 0;
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
@@ -28,9 +37,6 @@ const useTimeSeriesStore = create(
       
       loading: false,
       loadingText: '' ,
-      // Bumped on every selection so re-selecting the same feature is still observable,
-      // which is what makes retrying a failed fetch possible.
-      feature_request_id: 0,
       // Identifies whose data `series` currently holds, as vpu|variable|feature. A repeat
       // click on that same combination has nothing to fetch. Null means nothing is loaded,
       // so a failed or cleared load is always retried.
@@ -55,6 +61,12 @@ const useTimeSeriesStore = create(
           // "equal by value" guard (cheap)
           if (seriesFingerprint(prev) === seriesFingerprint(nextSeries)) return s;
 
+          // A shorter series can leave the playback index past the end. Clamping here means
+          // no component has to notice afterwards and correct it in an effect.
+          const maxIdx = Math.max(0, (nextSeries?.length || 0) - 1);
+          if (s.currentTimeIndex > maxIdx) {
+            return { series: nextSeries, currentTimeIndex: maxIdx };
+          }
           return { series: nextSeries };
         });
       },
@@ -112,8 +124,51 @@ const useTimeSeriesStore = create(
       },
       set_loading: (isLoading) => set({ loading: isLoading }),
       set_loading_text: (newLoadingText) => set({ loadingText: newLoadingText }),
-      set_feature_id: (newFeatureId) =>
-        set((s) => ({ feature_id: newFeatureId, feature_request_id: s.feature_request_id + 1 })),
+      /**
+       * Load and chart the series for one feature.
+       *
+       * Called straight from the map click, the search box, the variable menu, and the end of
+       * a vpu load, rather than by an effect watching feature_id. A repeat call is a retry, so
+       * a failed load needs no special path, and the guard below means clicking the feature
+       * already on screen costs nothing.
+       *
+       * ``variable`` is only used for this request; the caller owns the store's variable, so
+       * the flowpath layer is not left looking up data that has not arrived yet.
+       */
+      loadTimeseries: async ({ featureId, variable } = {}) => {
+        const state = get();
+        const targetId = featureId ?? state.feature_id;
+        if (!targetId) return;
+        if (targetId !== state.feature_id) set({ feature_id: targetId });
+
+        const { cache_key: cacheKey, forecast, variables } = useDataStreamStore.getState();
+        const requestedVariable = variable || state.variable || variables[0];
+        const requestKey = `${cacheKey}|${requestedVariable}|${targetId}`;
+        // This exact series is already charted, so there is nothing to fetch.
+        if (requestKey === state.last_loaded_key) return;
+
+        const requestId = ++latestRequest;
+        const id = targetId.split('-')[1];
+        get().reset_series();
+        set({ loading: true, loadingText: 'Loading feature properties...' });
+        try {
+          const rows = await getTimeseries(id, cacheKey, requestedVariable);
+          if (requestId !== latestRequest) return;
+          get().set_series(rows.map((d) => ({ x: new Date(d.time), y: d[requestedVariable] })));
+          get().set_layout({
+            yaxis: requestedVariable,
+            xaxis: '',
+            title: makeTitle(forecast, targetId),
+          });
+          set({ last_loaded_key: requestKey, loadingText: '' });
+        } catch (err) {
+          if (requestId !== latestRequest) return;
+          set({ loadingText: `Failed to load timeseries for id: ${targetId}` });
+          console.error('Failed to load timeseries for', targetId, err);
+        } finally {
+          if (requestId === latestRequest) set({ loading: false });
+        }
+      },
       set_last_loaded_key: (key) => set({ last_loaded_key: key }),
       
       set_chart_layout: (newLayout) => set({ chart_layout: newLayout }),

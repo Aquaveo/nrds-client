@@ -31,12 +31,6 @@ export const TimeSlider = React.memo(() => {
     return `T+${hours}h`;
   }, [series, currentTimeIndex, timeSteps]);
 
-  // Keep index in range if series changes
-  useEffect(() => {
-    if (!timeSteps) return;
-    if (currentTimeIndex > timeSteps - 1) setCurrentTimeIndex(timeSteps - 1);
-  }, [timeSteps, currentTimeIndex, setCurrentTimeIndex]);
-
   // Start/stop autoplay
   useEffect(() => {
     if (intervalRef.current) {
