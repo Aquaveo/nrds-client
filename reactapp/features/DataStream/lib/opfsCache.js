@@ -2,11 +2,89 @@ import appAPI from "features/Tethys/services/api/app";
 import { tableFromIPC  } from "apache-arrow";
 import { getNCFiles } from "./s3Utils";
 import { DuckDBDataProtocol } from "@duckdb/duckdb-wasm";
-import { getDuckDB } from "./duckdbClient";
+import { getDuckDB, getConnection } from "./duckdbClient";
 
 
 const CACHE_DIR = "nrds-cache";
 let cacheDirPromise = null;
+
+/**
+ * How many cached data files to keep, and which never to drop.
+ *
+ * The cache key is model x date x forecast x cycle x vpu x file, so browsing accumulates
+ * without limit: nothing evicted before this. Measured sizes are about 7 MB a parquet, so ten
+ * of them is roughly 70 MB against a 7.6 GB origin quota -- bounded rather than tight. The id
+ * index is exempt: it is 103 MB, the search depends on it, and refetching it is the slowest
+ * thing the app does.
+ */
+const MAX_CACHED_FILES = 10;
+const NEVER_EVICT = new Set(["index_data_table.parquet"]);
+const RECENCY_STORAGE_KEY = "nrds-cache-recency";
+
+const readRecency = () => {
+  try {
+    const raw = JSON.parse(window.localStorage?.getItem(RECENCY_STORAGE_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeRecency = (keys) => {
+  try {
+    window.localStorage?.setItem(RECENCY_STORAGE_KEY, JSON.stringify(keys));
+  } catch {
+    // Storage disabled or full: eviction falls back to treating everything as equally old.
+  }
+};
+
+/** Record that a cached file was just written or read, so it evicts last. */
+export function noteCacheUse(key) {
+  writeRecency([...readRecency().filter((k) => k !== key), key]);
+}
+
+async function dropCachedTable(key) {
+  try {
+    const conn = await getConnection();
+    try {
+      await conn.query(`DROP TABLE IF EXISTS "${tableNameForKey(key)}"`);
+    } finally {
+      await conn.close();
+    }
+  } catch {
+    // No database yet, or it never held this table.
+  }
+}
+
+/** Evict least-recently-used data files until the cache is back within its cap. */
+export async function pruneCache() {
+  const dir = await getCacheDir();
+  if (!dir) return [];
+
+  const present = [];
+  for await (const handle of dir.values()) {
+    if (handle.kind !== "file") continue;
+    const id = decodeURIComponent(handle.name);
+    if (isArrowFile(id) || isParquetFile(id)) present.push(id);
+  }
+
+  const evictable = present.filter((id) => !NEVER_EVICT.has(id));
+  if (evictable.length <= MAX_CACHED_FILES) return [];
+
+  // A file with no recorded use sorts oldest, which is what -1 gives us here.
+  const recency = readRecency();
+  const byAge = [...evictable].sort((a, b) => recency.indexOf(a) - recency.indexOf(b));
+  const doomed = byAge.slice(0, evictable.length - MAX_CACHED_FILES);
+
+  const evicted = [];
+  for (const id of doomed) {
+    await dropCachedTable(id);
+    if (await deleteFileFromCache(id)) evicted.push(id);
+  }
+  writeRecency(readRecency().filter((k) => !evicted.includes(k)));
+  return evicted;
+}
+
 
 export function formatBytes(bytes, decimals = 2) {
   if (bytes === 0) return '0 Bytes';
@@ -120,6 +198,8 @@ export async function saveDataToCache(key, url) {
     await cacheParquetToOPFS(url, writable);
   }
   const file = await fileHandle.getFile();
+  noteCacheUse(key);
+  await pruneCache();
   return formatBytes(file.size);
 }
 function ascii4(u8) {
@@ -199,6 +279,8 @@ async function createTableFromOPFSArrow({ conn, key }) {
 
 export async function createTableFromOPFS({ conn, key, safeName }) {
   const tableName = tableNameForKey(key);
+  // Reading counts as use, so a file the user keeps coming back to is not the one evicted.
+  noteCacheUse(key);
 
   if (await doesTableExist(conn, tableName)) {
     console.debug(`Table "${tableName}" already exists, skipping.`);
