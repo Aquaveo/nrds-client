@@ -95,33 +95,51 @@ export const makeGpkgUrl = (vpu) => {
     return vpu_gpkg;
 }
 
-export const initialS3Data = async(vpu, { signal } = {}) => {
-  try{
-    let _models = await getOptionsFromURL(`outputs`, { signal });
-    if (_models.length === 0){
-      return {models: [], dates: [], forecasts: [], cycles: [], ensembles: [], outputFiles: []};
-    }
-    const models = _models.filter(m => m.value !== 'test'); 
-    const dates = (await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/`, { signal })).reverse();
-    if (dates.length === 0){
-      return {models, dates: [], forecasts: [], cycles: [], ensembles:[], outputFiles: []};
-    }
-    const forecasts = (await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/${dates[1]?.value}/`, { signal })).reverse();
-    if (forecasts.length === 0){
-      return {models, dates, forecasts: [], cycles: [], ensembles:[], outputFiles: []};
-    }
-    const cycles = await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/${dates[1]?.value}/${forecasts[0]?.value}/`, { signal });
-    if (cycles.length === 0){
-      return {models, dates, forecasts, cycles: [], ensembles:[], outputFiles: []};
-    }
-    if (!vpu) {
-      return {models, dates, forecasts, cycles, ensembles:[], outputFiles: []};
-    }
-    const outputFiles = await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/${dates[1]?.value}/${forecasts[0]?.value}/${cycles[0]?.value}/${vpu}/ngen-run/outputs/troute/`, { signal });
-    return {models, dates, forecasts, cycles, ensembles:[], outputFiles};
-  }catch(error){
-    throw error;
-  }
+// Only the outputFiles listing depends on the vpu, but the effect calling initialS3Data
+// re-runs whenever the vpu changes, so all five listings were refetched every time. This
+// holds the four vpu-independent ones for the life of the page, making a vpu change cost one
+// request instead of five. Cached only when the chain completed, so an empty or failed
+// listing is retried rather than remembered. A reload picks up newly published dates.
+let cachedBaseOptions = null;
 
+const loadBaseOptions = async ({ signal }) => {
+  const _models = await getOptionsFromURL(`outputs`, { signal });
+  if (_models.length === 0){
+    return {models: [], dates: [], forecasts: [], cycles: []};
+  }
+  const models = _models.filter(m => m.value !== 'test');
+  const dates = (await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/`, { signal })).reverse();
+  if (dates.length === 0){
+    return {models, dates: [], forecasts: [], cycles: []};
+  }
+  const forecasts = (await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/${dates[1]?.value}/`, { signal })).reverse();
+  if (forecasts.length === 0){
+    return {models, dates, forecasts: [], cycles: []};
+  }
+  const cycles = await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/${dates[1]?.value}/${forecasts[0]?.value}/`, { signal });
+  return {models, dates, forecasts, cycles};
+}
+
+export const initialS3Data = async(vpu, { signal } = {}) => {
+  const base = cachedBaseOptions ?? await loadBaseOptions({ signal });
+  const {models, dates, forecasts, cycles} = base;
+  if (models.length === 0){
+    return {models: [], dates: [], forecasts: [], cycles: [], ensembles: [], outputFiles: []};
+  }
+  if (dates.length === 0){
+    return {models, dates: [], forecasts: [], cycles: [], ensembles:[], outputFiles: []};
+  }
+  if (forecasts.length === 0){
+    return {models, dates, forecasts: [], cycles: [], ensembles:[], outputFiles: []};
+  }
+  if (cycles.length === 0){
+    return {models, dates, forecasts, cycles: [], ensembles:[], outputFiles: []};
+  }
+  cachedBaseOptions = base;
+  if (!vpu) {
+    return {models, dates, forecasts, cycles, ensembles:[], outputFiles: []};
+  }
+  const outputFiles = await getOptionsFromURL(`outputs/${models[0]?.value}/v2.2_hydrofabric/${dates[1]?.value}/${forecasts[0]?.value}/${cycles[0]?.value}/${vpu}/ngen-run/outputs/troute/`, { signal });
+  return {models, dates, forecasts, cycles, ensembles:[], outputFiles};
 }
 
