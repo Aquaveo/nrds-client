@@ -54,13 +54,19 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
   try {
     const rows = await getTimeseries(id, cacheKey, requestedVariable);
     if (superseded()) return;
-    store.getState().set_series(rows.map((d) => ({ x: new Date(d.time), y: d[requestedVariable] })));
+    const points = rows.map((d) => ({ x: new Date(d.time), y: d[requestedVariable] }));
+    store.getState().set_series(points);
     store.getState().set_layout({
       yaxis: requestedVariable,
       xaxis: '',
       title: makeTitle(forecast, targetId),
     });
-    store.setState({ last_loaded_key: requestKey, loadingText: '' });
+    // Say when a load succeeded and found nothing. The chart's own empty state cannot: it
+    // looks the same before anything is selected, and the key below makes a re-ask a no-op.
+    store.setState({
+      last_loaded_key: requestKey,
+      loadingText: points.length ? '' : `No ${requestedVariable} data for ${targetId}`,
+    });
   } catch (err) {
     if (superseded()) return;
     store.setState({ loadingText: `Failed to load timeseries for id: ${targetId}` });

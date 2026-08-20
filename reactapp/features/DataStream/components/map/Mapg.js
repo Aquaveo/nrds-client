@@ -24,11 +24,10 @@ import {
   reorderLayers, 
   computeBounds, 
   convertFeaturesToPaths, 
-  writeColorInto, 
-  getValueAtTimeFlat 
 } from '../../lib/layers';
 import { layerIdToFeatureType } from '../../lib/utils';
 import { getCentroid, flowpathsSignature, mapStyleUrl } from '../../lib/layers';
+import { flowPathLayerProps } from './flowPathLayer';
 
 import {
   useCatchmentLayers,
@@ -70,39 +69,17 @@ const FlowPathsOverlay = React.memo(function FlowPathsOverlay({
   );
 
   const layers = useMemo(() => {
-    const numTimes = timesArr?.length || 0;
-    const pathData = pathDataRef.current;
-    if (!valuesByVar || !numTimes || !pathData?.length) return NO_LAYERS;
-
-    return [
-      new PathLayer({
-        id: "flowpaths-anim",
-        data: pathData,
-        // Toggled, not removed: deck.gl keeps a hidden layer's GPU resources.
-        visible,
-        getPath: (d) => d.path,
-        getColor: (d, { target }) => {
-          const v = getValueAtTimeFlat(valuesByVar, numTimes, d.featureIndex, currentTimeIndex);
-          return writeColorInto(v, bounds, target);
-        },
-        getWidth: (d) => {
-          const v = getValueAtTimeFlat(valuesByVar, numTimes, d.featureIndex, currentTimeIndex);
-          if (v === null || v <= -9998) return 2;
-          const t = Math.max(0, Math.min(1, (v - bounds.min) / (bounds.max - bounds.min)));
-          return 3 + t * 8;
-        },
-        widthUnits: "pixels",
-        widthMinPixels: 2,
-        widthMaxPixels: 12,
-        capRounded: true,
-        jointRounded: true,
-        pickable: false,
-        updateTriggers: {
-          getColor: [currentTimeIndex, variable, pathTick],
-          getWidth: [currentTimeIndex, variable, pathTick],
-        },
-      }),
-    ];
+    const props = flowPathLayerProps({
+      visible,
+      valuesByVar,
+      timesArr,
+      variable,
+      bounds,
+      pathData: pathDataRef.current,
+      currentTimeIndex,
+      pathTick,
+    });
+    return props ? [new PathLayer(props)] : NO_LAYERS;
   }, [visible, valuesByVar, bounds, variable, timesArr, currentTimeIndex, pathTick, pathDataRef]);
 
   return <DeckGLOverlay layers={layers} interleaved />;

@@ -148,6 +148,40 @@ describe('loadTimeseries', () => {
   });
 });
 
+describe('a feature with no data', () => {
+  it('says the load succeeded and found nothing', async () => {
+    queryData.getTimeseries.mockResolvedValueOnce([]);
+
+    await load({ featureId: 'wb-606' });
+
+    // The chart's own empty state cannot say this: it looks the same before anything is
+    // selected, and the recorded key means asking again does nothing.
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/No .* data for wb-606/);
+    expect(useTimeSeriesStore.getState().series).toHaveLength(0);
+    expect(useTimeSeriesStore.getState().loading).toBe(false);
+  });
+
+  it('keeps that message when the feature is asked for again', async () => {
+    queryData.getTimeseries.mockResolvedValueOnce([]);
+    await load({ featureId: 'wb-606' });
+
+    await load({ featureId: 'wb-606' });
+
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/No .* data for wb-606/);
+  });
+
+  it('clears the message once a feature with data is charted', async () => {
+    queryData.getTimeseries.mockResolvedValueOnce([]);
+    await load({ featureId: 'wb-606' });
+
+    await load({ featureId: 'wb-707' });
+
+    expect(useTimeSeriesStore.getState().loadingText).toBe('');
+    expect(useTimeSeriesStore.getState().series).toHaveLength(1);
+  });
+});
+
 describe('suppressing redundant loads', () => {
   it('does not reload the feature whose series is already charted', async () => {
     await load({ featureId: 'wb-404' });
