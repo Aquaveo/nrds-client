@@ -455,8 +455,8 @@ export function getValueAtTimeFlat(varData, numTimes, featureIndex, timeIndex) {
   return varData[idx];
 }
 
-// Hoisted out of valueToColor, which deck.gl calls once per flowpath per animation frame.
-// Rebuilding these seven arrays on every call cost about half the function's runtime.
+// Hoisted to module scope: writeColorInto runs once per flowpath per animation frame, and
+// rebuilding these seven arrays on every call cost about half its runtime.
 const COLOR_SCALE = [
   [0, 119, 187],
   [0, 180, 216],
@@ -467,26 +467,43 @@ const COLOR_SCALE = [
 ];
 const MISSING_COLOR = [100, 100, 100, 150];
 
-export function valueToColor(value, bounds) {
-  if (value === null || value === undefined || value <= -9998) return MISSING_COLOR;
-  if (!bounds || bounds.max === bounds.min) return COLOR_SCALE[0];
-  // Clamped because anything outside bounds indexes past the end of the scale and throws
-  // inside a deck.gl accessor. The commented-out linear ramp this replaced was clamped; the
-  // guard was lost when the curve became a square root.
-  const ratio = (value - bounds.min) / (bounds.max - bounds.min);
+/**
+ * Writes the color for one value into ``target`` and returns it.
+ *
+ * deck.gl hands every accessor a reusable ``target`` array precisely so colors can be
+ * produced without allocating (see the performance guide, "avoid creating new objects in
+ * accessors"). This is called once per flowpath per animation frame, so returning a fresh
+ * array meant tens of thousands of short-lived arrays per second.
+ *
+ * Alpha is always written. The array deck.gl supplies is reused between calls, so leaving
+ * the fourth slot alone would inherit the previous path's alpha.
+ */
+export function writeColorInto(value, bounds, target) {
+  if (value === null || value === undefined || value <= -9998) {
+    target[0] = MISSING_COLOR[0];
+    target[1] = MISSING_COLOR[1];
+    target[2] = MISSING_COLOR[2];
+    target[3] = MISSING_COLOR[3];
+    return target;
+  }
+  // Clamped because anything outside bounds indexes past the end of the scale, which used to
+  // throw inside a deck.gl accessor. The linear ramp this replaced was clamped and the guard
+  // was lost when the curve became a square root.
+  const ratio = !bounds || bounds.max === bounds.min
+    ? 0
+    : (value - bounds.min) / (bounds.max - bounds.min);
   const t = ratio > 0 ? Math.sqrt(ratio > 1 ? 1 : ratio) : 0;
   const idx = t * (COLOR_SCALE.length - 1);
   const lower = Math.floor(idx);
   const upper = Math.ceil(idx);
   const frac = idx - lower;
-  if (lower === upper) return COLOR_SCALE[lower];
   const from = COLOR_SCALE[lower];
   const to = COLOR_SCALE[upper];
-  return [
-    Math.round(from[0] + (to[0] - from[0]) * frac),
-    Math.round(from[1] + (to[1] - from[1]) * frac),
-    Math.round(from[2] + (to[2] - from[2]) * frac),
-  ];
+  target[0] = Math.round(from[0] + (to[0] - from[0]) * frac);
+  target[1] = Math.round(from[1] + (to[1] - from[1]) * frac);
+  target[2] = Math.round(from[2] + (to[2] - from[2]) * frac);
+  target[3] = 255;
+  return target;
 }
 
 export function computeBounds(varData) {

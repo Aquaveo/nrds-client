@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useRef, useMemo, useState } from 'react';
+import PropTypes from 'prop-types';
 import { useShallow } from 'zustand/react/shallow';
 import maplibregl from 'maplibre-gl';
 import { MapboxOverlay } from "@deck.gl/mapbox";
@@ -22,11 +23,11 @@ import {
   reorderLayers, 
   computeBounds, 
   convertFeaturesToPaths, 
-  valueToColor, 
+  writeColorInto, 
   getValueAtTimeFlat 
 } from '../../lib/layers';
 import { layerIdToFeatureType } from '../../lib/utils';
-import { getCentroid, flowpathsSignature } from '../../lib/layers';
+import { getCentroid, flowpathsSignature, mapStyleUrl } from '../../lib/layers';
 
 import {
   useCatchmentLayers,
@@ -41,6 +42,81 @@ function DeckGLOverlay(props) {
   overlay.setProps(props);
   return null;
 }
+
+const NO_LAYERS = [];
+
+/**
+ * The flowpath animation, isolated so that stepping through time re-renders only this.
+ *
+ * currentTimeIndex advances on an interval while playing. Reading it in MainMap re-ran that
+ * whole component every frame, including a getComputedStyle call and every hook in it. The
+ * frame index is read here instead, and nothing above this needs to re-render to animate.
+ */
+const FlowPathsOverlay = React.memo(function FlowPathsOverlay({
+  visible,
+  valuesByVar,
+  timesArr,
+  variable,
+  pathDataRef,
+  pathTick,
+}) {
+  const currentTimeIndex = useTimeSeriesStore((s) => s.currentTimeIndex);
+
+  // Bounds describe the data, not the frame. Computing them inside the layer memo rescanned
+  // every value on every step: about 9 ms per frame at 20k flowpaths over 240 timesteps.
+  const bounds = useMemo(
+    () => (valuesByVar ? computeBounds(valuesByVar) : null),
+    [valuesByVar]
+  );
+
+  const layers = useMemo(() => {
+    const numTimes = timesArr?.length || 0;
+    const pathData = pathDataRef.current;
+    if (!valuesByVar || !numTimes || !pathData?.length) return NO_LAYERS;
+
+    return [
+      new PathLayer({
+        id: "flowpaths-anim",
+        data: pathData,
+        // Toggled rather than removed: deck.gl keeps a hidden layer's GPU resources, so
+        // turning flowpaths back on is instant instead of rebuilding every buffer.
+        visible,
+        getPath: (d) => d.path,
+        getColor: (d, { target }) => {
+          const v = getValueAtTimeFlat(valuesByVar, numTimes, d.featureIndex, currentTimeIndex);
+          return writeColorInto(v, bounds, target);
+        },
+        getWidth: (d) => {
+          const v = getValueAtTimeFlat(valuesByVar, numTimes, d.featureIndex, currentTimeIndex);
+          if (v === null || v <= -9998) return 2;
+          const t = Math.max(0, Math.min(1, (v - bounds.min) / (bounds.max - bounds.min)));
+          return 3 + t * 8;
+        },
+        widthUnits: "pixels",
+        widthMinPixels: 2,
+        widthMaxPixels: 12,
+        capRounded: true,
+        jointRounded: true,
+        pickable: false,
+        updateTriggers: {
+          getColor: [currentTimeIndex, variable, pathTick],
+          getWidth: [currentTimeIndex, variable, pathTick],
+        },
+      }),
+    ];
+  }, [visible, valuesByVar, bounds, variable, timesArr, currentTimeIndex, pathTick, pathDataRef]);
+
+  return <DeckGLOverlay layers={layers} interleaved />;
+});
+
+FlowPathsOverlay.propTypes = {
+  visible: PropTypes.bool,
+  valuesByVar: PropTypes.object,
+  timesArr: PropTypes.array,
+  variable: PropTypes.string,
+  pathDataRef: PropTypes.shape({ current: PropTypes.array }).isRequired,
+  pathTick: PropTypes.number,
+};
 
 const MainMap = () => {
   const { 
@@ -90,12 +166,7 @@ const MainMap = () => {
   );
 
 
-  const { currentTimeIndex, variable } = useTimeSeriesStore(
-    useShallow((s) => ({
-      currentTimeIndex: s.currentTimeIndex,
-      variable: s.variable,
-    }))
-  );
+  const variable = useTimeSeriesStore((s) => s.variable);
 
   const { featureIdToIndex, timesArr, valuesByVar } = useVPUStore(
     useShallow((s) => ({
@@ -105,7 +176,6 @@ const MainMap = () => {
     }))
   );
 
-  const EMPTY_LAYERS = useMemo(() => [], []);
 
   const mapRef = useRef(null);
   const hoverMapRef = useRef(null);
@@ -113,61 +183,7 @@ const MainMap = () => {
   const pathDataRef = useRef([]);
 
   const [pathTick, setPathTick] = useState(0);
-  const mapStyleUrl = getComputedStyle(document.documentElement).getPropertyValue('--map-style-url').trim();
 
-
-  // Bounds depend on the data, not on the frame. Computing them inside the animated memo
-  // below rescanned every value on every step: about 9 ms per frame at 20k flowpaths.
-  const flowBounds = useMemo(
-    () => (valuesByVar ? computeBounds(valuesByVar) : null),
-    [valuesByVar]
-  );
-
-  const deckLayers = useMemo(() => {
-    if (!isFlowPathsVisible) return EMPTY_LAYERS;
-    const varData = valuesByVar;
-    const numTimes = timesArr?.length || 0;
-
-    const pathData = pathDataRef.current;
-    
-    if (!varData || !numTimes || !pathData?.length) return EMPTY_LAYERS;
-    const bounds = flowBounds;
-    return [
-      new PathLayer({
-        id: "flowpaths-anim",
-        data: pathData,
-        getPath: (d) => d.path,
-        getColor: (d) => {
-          const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
-          return valueToColor(v, bounds);
-        },
-        getWidth: (d) => {
-          const v = getValueAtTimeFlat(varData, numTimes, d.featureIndex, currentTimeIndex);
-          if (v === null || v <= -9998) return 2;
-          const t = Math.max(0, Math.min(1, (v - bounds.min) / (bounds.max - bounds.min)));
-          return 3 + t * 8;
-        },
-        widthUnits: "pixels",
-        widthMinPixels: 2,
-        widthMaxPixels: 12,
-        capRounded: true,
-        jointRounded: true,
-        pickable: false,
-        updateTriggers: {
-          getColor: [currentTimeIndex, variable, pathTick],
-          getWidth: [currentTimeIndex, variable, pathTick],
-        },
-      }),
-    ];
-  }, [
-    isFlowPathsVisible,
-    valuesByVar,
-    flowBounds,
-    variable,
-    timesArr,
-    currentTimeIndex,
-    pathTick,
-  ]);
 
 
   const hoverLayers = useMemo(() => ["divides", "nexus-points"], []);
@@ -443,7 +459,14 @@ const MainMap = () => {
       <Source key="nexus" id="nexus" type="vector" url={`pmtiles://${nexus_pmtiles}`}>
         {nexusLayers}
       </Source>
-      <DeckGLOverlay layers={deckLayers} interleaved />
+      <FlowPathsOverlay
+        visible={isFlowPathsVisible}
+        valuesByVar={valuesByVar}
+        timesArr={timesArr}
+        variable={variable}
+        pathDataRef={pathDataRef}
+        pathTick={pathTick}
+      />
       <CustomPopUp hovered_feature={hovered_feature} enabledHovering={enabledHovering} />
     </Map>
   );
