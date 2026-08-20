@@ -97,3 +97,28 @@ describe('selection made during a load', () => {
     expect(useTimeSeriesStore.getState().loading).toBe(false);
   });
 });
+
+describe('re-selecting the same feature', () => {
+  it('refetches after a failure, so a click is a retry', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.getTimeseries.mockRejectedValueOnce(new Error('network down'));
+
+    render(<TimeseriesLoader />);
+
+    await act(async () => {
+      useTimeSeriesStore.getState().set_feature_id('wb-303');
+    });
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load timeseries/);
+
+    // Same id as before: the selection itself has to be what triggers the refetch.
+    await act(async () => {
+      useTimeSeriesStore.getState().set_feature_id('wb-303');
+    });
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
+    expect(useTimeSeriesStore.getState().series).toHaveLength(1);
+    expect(useTimeSeriesStore.getState().loadingText).toBe('');
+
+    consoleError.mockRestore();
+  });
+});

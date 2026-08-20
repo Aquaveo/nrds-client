@@ -28,6 +28,9 @@ const useTimeSeriesStore = create(
       
       loading: false,
       loadingText: '' ,
+      // Bumped on every selection so re-selecting the same feature is still observable,
+      // which is what makes retrying a failed fetch possible.
+      feature_request_id: 0,
       currentTimeIndex: 0,
 
       isPlaying: false,
@@ -105,7 +108,8 @@ const useTimeSeriesStore = create(
       },
       set_loading: (isLoading) => set({ loading: isLoading }),
       set_loading_text: (newLoadingText) => set({ loadingText: newLoadingText }),
-      set_feature_id: (newFeatureId) => set({ feature_id: newFeatureId }),
+      set_feature_id: (newFeatureId) =>
+        set((s) => ({ feature_id: newFeatureId, feature_request_id: s.feature_request_id + 1 })),
       
       set_chart_layout: (newLayout) => set({ chart_layout: newLayout }),
       set_variable: (newVariable) => set({ variable: newVariable }),

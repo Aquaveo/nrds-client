@@ -142,9 +142,10 @@ export function TimeseriesLoader() {
     useShallow((s) => ({ prefix: s.prefix }))
   );
 
-  const { feature_id, variable, set_feature_id, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
+  const { feature_id, feature_request_id, variable, set_feature_id, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
     useShallow((s) => ({ 
       feature_id: s.feature_id,
+      feature_request_id: s.feature_request_id,
       variable: s.variable,
       set_feature_id: s.set_feature_id,
       set_variable: s.set_variable,
@@ -206,7 +207,7 @@ export function TimeseriesLoader() {
     return () => {
       alive = false;
     };
-  }, [feature_id]);
+  }, [feature_id, feature_request_id]);
 
   useEffect( () => {
    let alive = true;
