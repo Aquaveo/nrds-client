@@ -31,6 +31,10 @@ const useTimeSeriesStore = create(
       // Bumped on every selection so re-selecting the same feature is still observable,
       // which is what makes retrying a failed fetch possible.
       feature_request_id: 0,
+      // Identifies whose data `series` currently holds, as vpu|variable|feature. A repeat
+      // click on that same combination has nothing to fetch. Null means nothing is loaded,
+      // so a failed or cleared load is always retried.
+      last_loaded_key: null,
       currentTimeIndex: 0,
 
       isPlaying: false,
@@ -110,13 +114,21 @@ const useTimeSeriesStore = create(
       set_loading_text: (newLoadingText) => set({ loadingText: newLoadingText }),
       set_feature_id: (newFeatureId) =>
         set((s) => ({ feature_id: newFeatureId, feature_request_id: s.feature_request_id + 1 })),
+      set_last_loaded_key: (key) => set({ last_loaded_key: key }),
       
       set_chart_layout: (newLayout) => set({ chart_layout: newLayout }),
       set_variable: (newVariable) => set({ variable: newVariable }),
       reset_series: () =>
         set((s) => {
-          if (s.series === EMPTY_SERIES && s.currentTimeIndex === 0 && s.isPlaying === false) return s;
-          return { series: EMPTY_SERIES, currentTimeIndex: 0, isPlaying: false};
+          if (
+            s.series === EMPTY_SERIES &&
+            s.currentTimeIndex === 0 &&
+            s.isPlaying === false &&
+            s.last_loaded_key === null
+          ) {
+            return s;
+          }
+          return { series: EMPTY_SERIES, currentTimeIndex: 0, isPlaying: false, last_loaded_key: null };
         }),
 
       reset: () =>
@@ -128,6 +140,7 @@ const useTimeSeriesStore = create(
           layout: DEFAULT_LAYOUT,
           currentTimeIndex: 0,
           isPlaying: false,
+          last_loaded_key: null,
         })),
   }))
 );

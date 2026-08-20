@@ -10,6 +10,7 @@
 import { render, screen, act } from '@testing-library/react';
 
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import useDataStreamStore from 'features/DataStream/store/Datastream';
 
 // The map and menu subtrees pull maplibre, deck.gl and duckdb-wasm, none of which run in
 // jsdom, and none of which these assertions touch.
@@ -38,10 +39,12 @@ const { DataMenuLoading } = require('features/DataStream/components/forecast/dat
 
 const queryData = require('features/DataStream/lib/queryData');
 const initialTimeseriesState = useTimeSeriesStore.getState();
+const initialDataStreamState = useDataStreamStore.getState();
 
 beforeEach(() => {
-  // resetMocks is on for this project, which strips the factory implementations above.
+  // Both stores, because a cache_key surviving one test lets the VPU effect run in the next.
   useTimeSeriesStore.setState(initialTimeseriesState, true);
+  useDataStreamStore.setState(initialDataStreamState, true);
   queryData.getTimeseries.mockResolvedValue([{ time: '2022-08-01T00:00:00Z', flow: 1.5 }]);
   queryData.checkForTable.mockResolvedValue(true);
   queryData.getFeatureIDs.mockResolvedValue([]);
@@ -95,6 +98,82 @@ describe('selection made during a load', () => {
     // The fetch ran to completion rather than bailing out at a guard.
     expect(useTimeSeriesStore.getState().series).toHaveLength(1);
     expect(useTimeSeriesStore.getState().loading).toBe(false);
+  });
+});
+
+describe('suppressing redundant fetches', () => {
+  const select = async (id) => {
+    await act(async () => {
+      useTimeSeriesStore.getState().set_feature_id(id);
+    });
+  };
+
+  it('does not refetch the feature whose series is already displayed', async () => {
+    render(<TimeseriesLoader />);
+
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches on return, because another feature replaced the series in between', async () => {
+    render(<TimeseriesLoader />);
+
+    await select('wb-404');
+    await select('wb-505');
+    await select('wb-404');
+
+    // Suppressing the third fetch would leave wb-505's points on screen labelled wb-404.
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(3);
+    expect(queryData.getTimeseries.mock.calls.map((c) => c[0])).toEqual(['404', '505', '404']);
+  });
+
+  it('refetches the same feature when the variable changed underneath it', async () => {
+    render(<TimeseriesLoader />);
+
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useTimeSeriesStore.getState().set_variable('precipitation');
+    });
+
+    // Keying suppression on the feature alone would skip this and chart the old variable.
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
+    expect(queryData.getTimeseries.mock.calls[1][2]).toBe('precipitation');
+  });
+
+  it('refetches the same feature when the vpu changed underneath it', async () => {
+    // Two things independently force this: the vpu is part of the key, and the vpu effect
+    // calls reset(), which clears the key. Belt and braces, deliberately.
+    render(<TimeseriesLoader />);
+
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useDataStreamStore.getState().set_cache_key('vpu-16');
+    });
+
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
+    expect(queryData.getTimeseries.mock.calls[1][1]).toBe('vpu-16');
+  });
+
+  it('refetches after the series is cleared', async () => {
+    render(<TimeseriesLoader />);
+
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useTimeSeriesStore.getState().reset_series();
+    });
+    await select('wb-404');
+    expect(queryData.getTimeseries).toHaveBeenCalledTimes(2);
   });
 });
 

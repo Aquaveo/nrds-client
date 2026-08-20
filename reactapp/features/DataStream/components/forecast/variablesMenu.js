@@ -29,12 +29,13 @@ function VariablesMenu() {
     }))
   );
   
-  const { variable, set_variable, set_series, set_layout, feature_id } = useTimeSeriesStore(
+  const { variable, set_variable, set_series, set_layout, set_last_loaded_key, feature_id } = useTimeSeriesStore(
     useShallow((state) => ({
       variable: state.variable,
       set_variable: state.set_variable,
       set_series: state.set_series,
       set_layout: state.set_layout,
+      set_last_loaded_key: state.set_last_loaded_key,
       feature_id: state.feature_id,
     }))
   );
@@ -82,6 +83,8 @@ function VariablesMenu() {
         xaxis: 'Time',
         title: makeTitle(forecast, feature_id),
       });
+      // Same bookkeeping as the click path, so clicking this feature next does not refetch.
+      set_last_loaded_key(`${cacheKey}|${opt.value}|${feature_id}`);
     } catch (err) {
       if (!isMountedRef.current || requestId !== requestIdRef.current) return;
       console.error('Failed to change variable', err);
@@ -95,6 +98,7 @@ function VariablesMenu() {
     set_variable,
     set_series,
     set_layout,
+    set_last_loaded_key,
   ]);
 
   return (

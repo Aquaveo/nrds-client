@@ -142,12 +142,14 @@ export function TimeseriesLoader() {
     useShallow((s) => ({ prefix: s.prefix }))
   );
 
-  const { feature_id, feature_request_id, variable, set_feature_id, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
+  const { feature_id, feature_request_id, last_loaded_key, variable, set_feature_id, set_last_loaded_key, set_variable, set_loading_text, set_series, set_layout, set_loading, reset_series, reset } = useTimeSeriesStore(
     useShallow((s) => ({ 
       feature_id: s.feature_id,
       feature_request_id: s.feature_request_id,
+      last_loaded_key: s.last_loaded_key,
       variable: s.variable,
       set_feature_id: s.set_feature_id,
+      set_last_loaded_key: s.set_last_loaded_key,
       set_variable: s.set_variable,
       set_loading_text: s.set_loading_text,
       set_series: s.set_series,
@@ -171,11 +173,14 @@ export function TimeseriesLoader() {
     async function getTsData(){
 
       if (!feature_id) return;
+      const currentVariable = !variable ? variables[0] : variable;
+      const requestKey = `${cacheKey}|${currentVariable}|${feature_id}`;
+      // This exact series is already on screen, so a repeat click has nothing to fetch.
+      if (requestKey === last_loaded_key) return;
       reset_series();
       const id = feature_id.split('-')[1];
       set_loading(true);
       set_loading_text('Loading feature properties...');
-      let currentVariable = !variable ? variables[0] : variable;
       try {
         const series = await getTimeseries(id, cacheKey, currentVariable);
         if (!alive) return;
@@ -191,6 +196,7 @@ export function TimeseriesLoader() {
           xaxis: '',
           title: makeTitle(forecast, feature_id),
         });
+        set_last_loaded_key(requestKey);
         set_loading_text('');
       } 
       catch (err) {
@@ -207,6 +213,8 @@ export function TimeseriesLoader() {
     return () => {
       alive = false;
     };
+    // last_loaded_key is left out on purpose: every click bumps feature_request_id, so the
+    // effect is always recreated with a fresh value of it.
   }, [feature_id, feature_request_id]);
 
   useEffect( () => {
