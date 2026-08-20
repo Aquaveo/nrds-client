@@ -1,0 +1,140 @@
+/**
+ * The search box could not be typed in and threw on every keystroke.
+ *
+ * Its value came from the store's feature_id, which only changes for a complete id in the
+ * loaded vpu, so keystrokes were discarded. Each one also queried the id index, which takes
+ * about seven seconds to build on mount, so anything typed before then raised a duckdb catalog
+ * error with no catch to absorb it.
+ */
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import useDataStreamStore from 'features/DataStream/store/Datastream';
+import { useFeatureStore } from 'features/DataStream/store/Layers';
+
+jest.mock('features/DataStream/lib/queryData', () => ({
+  loadIndexData: jest.fn(),
+  getFeatureProperties: jest.fn(),
+}));
+jest.mock('features/DataStream/actions/loadTimeseries', () => ({ loadTimeseries: jest.fn() }));
+
+const queryData = require('features/DataStream/lib/queryData');
+const { loadTimeseries } = require('features/DataStream/actions/loadTimeseries');
+const SearchBar = require('features/DataStream/components/map/SearchBar').default;
+
+const initial = {
+  ts: useTimeSeriesStore.getState(),
+  ds: useDataStreamStore.getState(),
+  fs: useFeatureStore.getState(),
+};
+
+beforeEach(() => {
+  useTimeSeriesStore.setState(initial.ts, true);
+  useDataStreamStore.setState(initial.ds, true);
+  useFeatureStore.setState(initial.fs, true);
+  queryData.loadIndexData.mockResolvedValue(undefined);
+  queryData.getFeatureProperties.mockResolvedValue([{ id: 'cat-1', vpuid: '01' }]);
+  loadTimeseries.mockResolvedValue(undefined);
+});
+
+const box = () => screen.getByRole('textbox');
+const button = () => screen.getByRole('button', { name: /search/i });
+// fireEvent.change, not a raw value assignment: React tracks its own value and would ignore
+// the latter, leaving the component's state empty while the DOM looked right.
+const type = (text) => fireEvent.change(box(), { target: { value: text } });
+
+const ready = async () => {
+  render(<SearchBar />);
+  await waitFor(() => expect(box()).not.toBeDisabled());
+};
+
+describe('the search box', () => {
+  it('keeps what is typed into it', async () => {
+    await ready();
+
+    type('cat-123');
+
+    // Its value used to come from the store, so every keystroke was thrown away.
+    expect(box()).toHaveValue('cat-123');
+  });
+
+  it('does not query while typing', async () => {
+    await ready();
+
+    type('cat-1');
+
+    expect(queryData.getFeatureProperties).not.toHaveBeenCalled();
+  });
+
+  it('is disabled until the index is built, and explains why', async () => {
+    let release;
+    queryData.loadIndexData.mockImplementation(() => new Promise((r) => { release = r; }));
+    render(<SearchBar />);
+
+    expect(box()).toBeDisabled();
+    expect(box()).toHaveAttribute('placeholder', expect.stringMatching(/index/i));
+
+    await act(async () => { release(); });
+    expect(box()).not.toBeDisabled();
+  });
+
+  it('searches once, on submit', async () => {
+    await ready();
+    type('cat-1');
+
+    await act(async () => { button().click(); });
+
+    expect(queryData.getFeatureProperties).toHaveBeenCalledTimes(1);
+    expect(queryData.getFeatureProperties).toHaveBeenCalledWith({
+      cacheKey: 'index_data_table', feature_id: 'cat-1',
+    });
+    expect(useFeatureStore.getState().selected_feature).toMatchObject({ _id: 'cat-1' });
+  });
+
+  it('charts the hit when it is in the loaded vpu', async () => {
+    useDataStreamStore.setState({ vpu: 'VPU_01' });
+    await ready();
+    type('cat-1');
+
+    await act(async () => { button().click(); });
+
+    expect(loadTimeseries).toHaveBeenCalledWith({ featureId: 'cat-1' });
+  });
+
+  it('says so when the id is not in the index', async () => {
+    queryData.getFeatureProperties.mockResolvedValue([]);
+    await ready();
+    type('cat-nope');
+
+    await act(async () => { button().click(); });
+
+    expect(box()).toHaveAttribute('placeholder', expect.stringMatching(/No feature with id/i));
+    expect(useFeatureStore.getState().selected_feature).toBe(null);
+  });
+
+  it('reports a failed search instead of throwing into the console', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.getFeatureProperties.mockRejectedValue(new Error('Catalog Error'));
+    await ready();
+    type('cat-1');
+
+    await act(async () => { button().click(); });
+
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Search failed for cat-1/);
+    expect(useTimeSeriesStore.getState().last_error).toEqual({ kind: 'search', featureId: 'cat-1' });
+    consoleError.mockRestore();
+  });
+
+  it('reports an index that cannot be built', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    queryData.loadIndexData.mockRejectedValue(new Error('404'));
+
+    render(<SearchBar />);
+    await waitFor(() =>
+      expect(useTimeSeriesStore.getState().last_error).toEqual({ kind: 'search-index' }));
+
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Search is unavailable/);
+    expect(box()).toBeDisabled();
+    consoleError.mockRestore();
+  });
+});

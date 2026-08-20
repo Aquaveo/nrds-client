@@ -438,6 +438,29 @@ export const SearchInput = styled.input`
   }
 `;
 
+// The search wrapper is a flex row, so this sits at its end without disturbing the input.
+export const SearchButton = styled.button`
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 2px 10px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--status-text);
+  background-color: var(--status-bg);
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  &:not(:disabled):hover {
+    filter: brightness(1.25);
+  }
+`;
+
 export const ViewContainer = styled.div`
   height: 100%;
   width: 100%;
