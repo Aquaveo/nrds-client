@@ -39,7 +39,7 @@ export const CacheTable = React.memo(({ tables }) => {
     <Fragment>
       <IconLabel>
         <IoFolderOpenOutline />
-        <Title>Files Loaded</Title>
+        <Title as="h2">Files Loaded</Title>
 
         <SButton
           bsPrefix="btn2"
@@ -47,6 +47,7 @@ export const CacheTable = React.memo(({ tables }) => {
           disabled={disableAllButtons}
           aria-busy={deletingAll}
           title={deletingAll ? 'Deleting...' : 'Delete all cached tables'}
+          aria-label={deletingAll ? 'Deleting all cached tables' : 'Delete all cached tables'}
           style={{ opacity: disableAllButtons ? 0.6 : 1, cursor: disableAllButtons ? 'not-allowed' : 'pointer' }}
         >
           <IoSkullOutline size={15} />
@@ -54,19 +55,19 @@ export const CacheTable = React.memo(({ tables }) => {
 
         {/* optional tiny status */}
         {deletingAll && (
-          <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>
+          <span style={{ marginLeft: 8, fontSize: 'var(--text-xs)', color: 'var(--panel-text-muted)' }}>
             Deleting...
           </span>
         )}
       </IconLabel>
 
       {tables && tables.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', padding: '3px', borderBottom: '1px solid #ddd' }}></th>
-              <th style={{ textAlign: 'left', padding: '3px', borderBottom: '1px solid #ddd' }}>File</th>
-              <th style={{ textAlign: 'left', padding: '3px', borderBottom: '1px solid #ddd' }}>Size</th>
+              <th style={{ textAlign: 'left', padding: '3px', borderBottom: '1px solid var(--panel-border-color)' }}></th>
+              <th style={{ textAlign: 'left', padding: '3px', borderBottom: '1px solid var(--panel-border-color)' }}>File</th>
+              <th style={{ textAlign: 'left', padding: '3px', borderBottom: '1px solid var(--panel-border-color)' }}>Size</th>
             </tr>
           </thead>
           <tbody>
@@ -79,7 +80,7 @@ export const CacheTable = React.memo(({ tables }) => {
                     style={{
                       padding: '3px',
                       maxWidth: '20px',
-                      borderBottom: '1px solid #eee',
+                      borderBottom: '1px solid var(--panel-border-color)',
                     }}
                   >
                     <SButton
@@ -87,7 +88,8 @@ export const CacheTable = React.memo(({ tables }) => {
                       onClick={() => deleteSingleCache(table.id)}
                       disabled={disableAllButtons}
                       aria-busy={isDeletingThis}
-                      title={isDeletingThis ? 'Deleting...' : 'Delete table'}
+                      title={isDeletingThis ? 'Deleting...' : `Delete ${table.name}`}
+                      aria-label={isDeletingThis ? `Deleting ${table.name}` : `Delete ${table.name}`}
                       style={{ opacity: disableAllButtons ? 0.6 : 1, cursor: disableAllButtons ? 'not-allowed' : 'pointer' }}
                     >
                       {/* optional: show X or text while deleting */}
@@ -103,7 +105,7 @@ export const CacheTable = React.memo(({ tables }) => {
                     title={table.name}
                     style={{
                       padding: '3px',
-                      borderBottom: '1px solid #eee',
+                      borderBottom: '1px solid var(--panel-border-color)',
                       maxWidth: '100px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -117,7 +119,7 @@ export const CacheTable = React.memo(({ tables }) => {
                   <td
                     style={{
                       padding: '3px',
-                      borderBottom: '1px solid #eee',
+                      borderBottom: '1px solid var(--panel-border-color)',
                       maxWidth: '70px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -132,8 +134,8 @@ export const CacheTable = React.memo(({ tables }) => {
           </tbody>
         </table>
       ) : (
-        <div style={{ padding: '16px', textAlign: 'center', color: '#666' }}>
-          No cached tables available.
+        <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--panel-text-muted)', fontSize: 'var(--text-sm)' }}>
+          Nothing cached yet. Loading a VPU keeps its data here for next time.
         </div>
       )}
     </Fragment>

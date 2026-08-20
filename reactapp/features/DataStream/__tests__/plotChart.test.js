@@ -48,10 +48,12 @@ describe('LineChart', () => {
     expect(screen.getByText(/flow/i)).toBeInTheDocument();
   });
 
-  it('says there is nothing to draw rather than drawing nothing', () => {
+  it('tells you what to do rather than only that there is nothing', () => {
     render(<LineChart width={800} height={400} data={empty} layout={layout} />);
 
-    expect(screen.getByText(/no data/i)).toBeInTheDocument();
+    // The empty state used to read "No data to display", which describes the chart's problem
+    // rather than the reader's next move.
+    expect(screen.getByText(/select a catchment/i)).toBeInTheDocument();
   });
 
   it('survives a zero-width container', () => {

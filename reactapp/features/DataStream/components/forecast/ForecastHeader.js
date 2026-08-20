@@ -10,17 +10,20 @@ export const ForecastHeader = ({ title, onClick }) =>{
   return (
     <div>
       <Row>
-        <IconLabel $fontSize={16}>
-          <MdLocationPin size={18} color="#009989" />
+        <IconLabel as="h2" $fontSize={16}>
+          <MdLocationPin size={18} style={{ color: 'var(--nav-pill-active-bg)' }} />
           {title}
-          <IconLabel>
-            <SButton bsPrefix='btn2' onClick={() => setModalDataInfoShow(true)}>
-              <MdInfoOutline size={15} />
-            </SButton>
-          </IconLabel> 
         </IconLabel>
-        <SButton onClick={onClick}>
-          <MdClose/>
+        <SButton
+          bsPrefix="btn2"
+          onClick={() => setModalDataInfoShow(true)}
+          aria-label="About this data"
+          title="About this data"
+        >
+          <MdInfoOutline size={15} />
+        </SButton>
+        <SButton onClick={onClick} aria-label="Clear selection" title="Clear selection">
+          <MdClose />
         </SButton>
       </Row>
       <DataInfoModel

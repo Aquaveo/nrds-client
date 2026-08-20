@@ -106,7 +106,7 @@ export const LayersContainer = styled.div`
   position: absolute;
   top: calc(var(--ts-header-height) + 16px);
   right: 10px;
-  width: 250px;
+  width: min(250px, calc(100vw - 32px));
   padding: 15px;
   background-color: var(--map-panel-bg);
   color: var(--map-panel-text);
@@ -128,7 +128,7 @@ export const CacheTableContainer = styled.div`
   right: 10px;
   // height: 300px;
   overflow-y: scroll;
-  width: 250px;
+  width: min(250px, calc(100vw - 32px));
   padding: 15px;
   background-color: var(--map-panel-bg);
   color: var(--map-panel-text);
@@ -221,6 +221,11 @@ export const SButton = styled(Button)`
     border: none;
     box-shadow: none;
   }
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 `;
 
 // Sits in the header, so it must stay compact and never push the search bar around. Failure is
@@ -292,17 +297,19 @@ export const IconLabel = styled.span`
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: ${({ $fontSize = '13' }) => `${$fontSize}px`};
-  margin-bottom: 4px;
+  font-size: ${({ $fontSize }) => ($fontSize ? `${$fontSize}px` : 'var(--text-sm)')};
+  font-weight: var(--weight-medium);
+  /* Explicit, because this renders as a heading in places and would inherit h2 margins. */
+  margin: 0 0 4px;
   color: var(--accent-text);
 `;
 
 export const Title = styled.span`
   letter-spacing: 0.0125em;
-  font-family: 'Google Sans', Roboto, Arial, sans-serif;
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 24px;
+  font-weight: var(--weight-strong);
+  font-size: var(--text-md);
+  line-height: 1.4;
+  margin: 0;
   align-items: center;
 `;
 
@@ -355,11 +362,19 @@ export const Switch = styled(Form.Switch)`
 `;
 
 export const Content = styled.div`
-  padding: 12px;
+  padding: 14px 16px 18px;
   border-block-end: 1px solid var(--panel-border-color);
 
-  &:first-of-type {
-    border-bottom: none;
+  /* No rule under the final section. It used to be dropped from the first one instead, which
+     left the panel ending on a hanging divider. */
+  &:last-of-type {
+    border-block-end: none;
+  }
+
+  /* Rhythm: sections after the first breathe a little more, so the panel reads as grouped
+     regions rather than one uniform stack. */
+  & + & {
+    padding-top: 20px;
   }
 
   a {
@@ -427,14 +442,26 @@ export const SearchIcon = styled(FiSearch)`
 
 export const SearchInput = styled.input`
   border: none;
-  outline: none;
-  width: 500px;
-  font-size: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-md);
   background: transparent;
   color: var(--search-text);
 
+  /* A visible ring rather than outline: none. Keyboard users had no indication of focus in
+     the app's most-used control. Drawn inside so it cannot widen the header. */
+  outline: none;
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--nav-pill-active-bg);
+    border-radius: 3px;
+  }
+
   &::placeholder {
     color: var(--search-placeholder);
+  }
+
+  &:disabled {
+    cursor: default;
   }
 `;
 

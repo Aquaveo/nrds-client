@@ -398,7 +398,7 @@ const LineChart = React.memo(function LineChart({ width, height, data, layout })
       {noData ? (
         <NoData
         >
-          🛠 No data to display
+          Select a catchment to see its timeseries
         </NoData>
       ) : (
         <>

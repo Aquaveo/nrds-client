@@ -26,10 +26,7 @@ const ForecastMenu = () => {
     }))
   );
 
-  const isopen = useMemo(() => {
-      console.log("ForecastMenu isopen computed with feature_id:", feature_id);
-      return feature_id != null;
-  }, [feature_id]);
+  const isopen = useMemo(() => feature_id != null, [feature_id]);
 
   const onReset = useCallback(() => {
     reset();
@@ -38,7 +35,7 @@ const ForecastMenu = () => {
   
   return (
     <Fragment>          
-          <Container $isOpen={isopen}>
+          <Container as="aside" aria-label="Selected feature" $isOpen={isopen}>
             <div>
                   {layout?.title && (
                     <ForecastHeader
