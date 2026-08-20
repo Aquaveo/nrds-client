@@ -324,14 +324,14 @@ export const ToggleButton = styled(Button)`
 
   background-color: var(--button-primary-bg);
   border: none;
-  color: #ffffff;
+  color: var(--button-primary-text);
   border-radius: 5px;
   padding: 3px 10px;
   z-index: 1001;
 
   &:hover {
     background-color: var(--button-primary-hover-bg);
-    color: #ffffff;
+    color: var(--button-primary-text);
     border: none;
     box-shadow: none;
   }

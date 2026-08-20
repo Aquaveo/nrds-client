@@ -32,9 +32,9 @@ $theme-colors: (
 :root {
   color-scheme: light dark;
   /* core */
-  --background-color: #{$primary};
+  --background-color: oklch(0.985 0.006 249);
   --text-color: oklch(0.248 0.006 249);
-   --primary-color: #{$primary};
+   --primary-color: oklch(0.985 0.006 249);
   --title-text-color: #5f6368;
   --ts-header-height: 56px;
 
@@ -66,14 +66,14 @@ $theme-colors: (
   --map-divides-highlight-fill: rgba(5, 49, 243, 0.32);
   --map-divides-highlight-outline: rgba(253, 0, 253, 0.7);
 
-  --map-flowpaths-color: #000000;
+  --map-flowpaths-color: #0b0e10;
 
 
   --map-gauges-color: #646464;
 
   
   --map-nexus-circle-color: #1f78b4;
-  --map-nexus-stroke-color: #ffffff;
+  --map-nexus-stroke-color: #f7fafe;
   --map-nexus-highlight-circle-color: #1f78b4;
 
   --button-primary-bg: #{$light};
@@ -91,28 +91,28 @@ $theme-colors: (
  
 
   /* extras used in components */
-  --panel-background: #{$primary};
+  --panel-background: oklch(0.985 0.006 249);
   --panel-border-color: oklch(0.669 0.008 249);
   --muted-text: #212121;
 
-  --offcanvas-bg: #ffffff;
+  --offcanvas-bg: oklch(0.985 0.006 249);
   --offcanvas-border-color: #dee2e6;
 
-  --popup-bg: #ffffff;
+  --popup-bg: oklch(0.985 0.006 249);
   --popup-text-color: #212529;
 
   --map-panel-bg: #{$light};
   --map-panel-text: #212121;
 
-  --select-control-bg: #ffffff;
+  --select-control-bg: oklch(0.985 0.006 249);
   --select-control-border: #cccccc;
   --select-text-color: oklch(0.160 0.006 249);
   --select-placeholder-color: #666666;
-  --select-menu-bg: #ffffff;
+  --select-menu-bg: oklch(0.985 0.006 249);
   --select-option-hover-bg: rgba(38,132,255,0.1);
   --select-option-selected-bg: #2684ff;
 
-  --modal-bg: #{$primary};
+  --modal-bg: oklch(0.985 0.006 249);
   --modal-text-color: #111827;
   --modal-border-color: #e5e7eb;
 
@@ -126,13 +126,13 @@ $theme-colors: (
   --nav-button-hover-bg: rgba(0, 0, 0, 0.1);
 
   /* error overlay / box */
-  --error-overlay-bg: #ffffff;
-  --error-box-bg: #ffffff;
+  --error-overlay-bg: oklch(0.985 0.006 249);
+  --error-box-bg: oklch(0.985 0.006 249);
   --error-box-text-color: #111827;
 
   /* nav pills active state */
   --nav-pill-active-bg: oklch(0.540 0.090 175);
-  --nav-pill-active-text-color: #ffffff;
+  --nav-pill-active-text-color: oklch(0.985 0.006 249);
 
   /* line chart colors - light */
   --chart-axis-label-color: #111827;
@@ -144,7 +144,7 @@ $theme-colors: (
   --chart-tooltip-text: #111827;
   --chart-tooltip-border-color: rgba(148, 163, 184, 0.6);
   --chart-crosshair-color: #4b5563;
-  --chart-glyph-stroke-color: #ffffff;
+  --chart-glyph-stroke-color: oklch(0.985 0.006 249);
   --chart-empty-text-color: var(--panel-text-muted);
 
   /* comma-separated line colors */
@@ -162,18 +162,18 @@ $theme-colors: (
 @media (prefers-color-scheme: dark) {
   :root {
     --primary-color: #{$secondary};
-    --title-text-color: #ffffff;
+    --title-text-color: oklch(0.985 0.006 249);
     --background-color: #{$secondary};
-    --text-color: #ffffff;
+    --text-color: oklch(0.985 0.006 249);
     --panel-text-muted: oklch(0.753 0.012 249);
 
     /* 7.2:1 normally and 6.3:1 for failures against the dark header. $danger is far too dark
        to read on this background, so failure text is lightened rather than reused. */
-    --status-text: #ffffff;
+    --status-text: oklch(0.985 0.006 249);
     --status-bg: rgba(255, 255, 255, 0.14);
     --status-failed-text: #ffb4ab;
     --status-failed-bg: rgba(214, 37, 24, 0.16);
-    --hover-text: #{$primary};
+    --hover-text: oklch(0.985 0.006 249);
     --map-style-url: #{'https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/styles/dark-style.json'};
     --map-divides-outline-color: rgba(238, 51, 119, 0.5);
     --map-divides-highlight-fill: rgba(24, 21, 230, 0.32);
@@ -198,7 +198,7 @@ $theme-colors: (
 
     --button-primary-bg: #{$dark};
     --button-primary-hover-bg: #{$dark};
-    --button-primary-text-hover: #{$primary};
+    --button-primary-text-hover: oklch(0.985 0.006 249);
     --button-primary-text: #c4fff8;
     
     // --accent-text: #c4fff8;
@@ -241,7 +241,7 @@ $theme-colors: (
 
     /* nav pills active state */
     --nav-pill-active-bg: oklch(0.540 0.090 175);       // same brand color in dark mode
-    --nav-pill-active-text-color: #ffffff;
+    --nav-pill-active-text-color: oklch(0.985 0.006 249);
 
     --chart-axis-label-color: #e5e7eb;
     --chart-axis-stroke-color: #d1d5db;

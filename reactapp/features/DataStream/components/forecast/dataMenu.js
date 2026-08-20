@@ -478,8 +478,9 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
     <Fragment>
       {rows.map((r) => (
         <Row key={r.key}>
-          <IconLabel>{r.label}</IconLabel>
+          <IconLabel as="label" htmlFor={`select-${r.key}`}>{r.label}</IconLabel>
           <SelectComponent
+            inputId={`select-${r.key}`}
             optionsList={r.options}
             value={r.value}
             onChangeHandler={r.onChange}

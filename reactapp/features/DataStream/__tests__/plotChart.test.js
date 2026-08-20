@@ -51,8 +51,7 @@ describe('LineChart', () => {
   it('tells you what to do rather than only that there is nothing', () => {
     render(<LineChart width={800} height={400} data={empty} layout={layout} />);
 
-    // The empty state used to read "No data to display", which describes the chart's problem
-    // rather than the reader's next move.
+    // It used to say "No data to display": the chart's problem, not the reader's next move.
     expect(screen.getByText(/select a catchment/i)).toBeInTheDocument();
   });
 

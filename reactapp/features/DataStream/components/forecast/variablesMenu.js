@@ -90,8 +90,9 @@ function VariablesMenu() {
     <Fragment>
          { availableVariablesList.length > 0 && (
           <Row>
-            <IconLabel> <VariableIcon /> Variable</IconLabel>
+            <IconLabel as="label" htmlFor="select-variable"> <VariableIcon /> Variable</IconLabel>
             <SelectComponent
+              inputId="select-variable"
               optionsList={availableVariablesList}
               value={selectedVariableOption}
               onChangeHandler={handleChangeVariable}

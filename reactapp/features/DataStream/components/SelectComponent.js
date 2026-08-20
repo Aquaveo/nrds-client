@@ -53,19 +53,20 @@ const customStyles = (width = 150) => {
     }),
     control: (base, state) => ({
       ...base,
-      minHeight: 28,
-      height: 28,
-      fontSize: 12,
+      /* 28px was below any touch guidance, on the six controls used most. */
+      minHeight: 44,
+      height: 44,
+      fontSize: 'var(--text-sm)',
       borderRadius: 4,
       paddingTop: 0,
       paddingBottom: 0,
       backgroundColor: 'var(--select-control-bg)',
       borderColor: state.isFocused
-        ? '#2684ff'
+        ? 'var(--nav-pill-active-bg)'
         : 'var(--select-control-border)',
-      boxShadow: state.isFocused ? '0 0 0 1px #2684ff' : 'none',
+      boxShadow: state.isFocused ? '0 0 0 2px var(--nav-pill-active-bg)' : 'none',
       '&:hover': {
-        borderColor: '#2684ff',
+        borderColor: 'var(--nav-pill-active-bg)',
       },
     }),
     valueContainer: (base) => ({
@@ -74,7 +75,7 @@ const customStyles = (width = 150) => {
     }),
     indicatorsContainer: (base) => ({
       ...base,
-      height: 28,
+      height: 44,
     }),
     dropdownIndicator: (base) => ({
       ...base,
@@ -138,6 +139,7 @@ const SelectComponent = ({
   onChangeHandler,
   value,
   width = 150,
+  inputId,
 }) => {
 
   const components = useMemo(() => ({ MenuList }), []);
@@ -153,6 +155,7 @@ const SelectComponent = ({
   );
   return (
     <Select
+      inputId={inputId}
       components={components}
       styles={styles}
       filterOption={filterOption}
