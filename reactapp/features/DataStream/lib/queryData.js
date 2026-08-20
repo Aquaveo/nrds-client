@@ -78,45 +78,46 @@ export async function getFeatureIDs(cacheKey) {
   }
 }
 
+// Keyed with the extension the cache dispatches on; tableNameForKey strips it, so the table is
+// still called index_data_table.
+const INDEX_CACHE_KEY = "index_data_table.parquet";
+
 export async function loadIndexData({ remoteUrl }) {
-  const cacheKey = "index_data_table";
-  debugLog("loadIndexData called with cacheKey:", cacheKey);
+  debugLog("loadIndexData called with cacheKey:", INDEX_CACHE_KEY);
 
+  const tableName = INDEX_CACHE_KEY.split('.')[0];
   const conn = await getConnection();
-
   try {
-    const tableName = cacheKey.replace(/"/g, '""');
-
     const existsResult = await conn.query(`
       SELECT COUNT(*) AS cnt
       FROM information_schema.tables
       WHERE table_schema = 'main'
         AND table_name = '${tableName}'
     `);
-
-    const rows = existsResult.toArray();
-    const exists = rows[0].cnt > 0;
-
-    if (exists) {
-      debugLog(`Table "${cacheKey}" already exists, skipping load.`);
+    if (existsResult.toArray()[0].cnt > 0) {
+      debugLog(`Table "${tableName}" already exists, skipping load.`);
       return;
     }
-
-    await conn.query("INSTALL httpfs; LOAD httpfs;");
-    await conn.query("INSTALL parquet; LOAD parquet;");
-    await conn.query("SET enable_http_metadata_cache=true;");
-    
-    await conn.query(`
-      CREATE TABLE "${tableName}" AS
-      SELECT * FROM read_parquet('${remoteUrl}')
-    `);
-
-    debugLog(`Created table "${cacheKey}" from remote parquet ${remoteUrl}`);
   } finally {
     await conn.close();
   }
-}
 
+  // Cached in OPFS like the vpu tables: 103 MB and 2.07M ids, paid once per browser.
+  let meta = await statFromCache(INDEX_CACHE_KEY);
+  if (!meta) {
+    await saveDataToCache(INDEX_CACHE_KEY, remoteUrl);
+    meta = await statFromCache(INDEX_CACHE_KEY);
+    if (!meta) throw new Error(`Saved the id index to cache but cannot stat it`);
+  }
+
+  const tableConn = await getConnection();
+  try {
+    await createTableFromOPFS({ conn: tableConn, key: INDEX_CACHE_KEY, safeName: meta.safeName });
+    debugLog(`Created table "${tableName}" from the cached index`);
+  } finally {
+    await tableConn.close();
+  }
+}
 
 export async function getFeatureProperties({ cacheKey, feature_id }) {
   debugLog("getFeature called with cacheKey:", cacheKey, "feature_id:", feature_id);

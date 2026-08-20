@@ -67,10 +67,14 @@ async function saveArrowToCache(url, writable) {
   }
 }
 
+// The datastream bucket, for callers that pass a key within it rather than a full url.
+const DATASTREAM_BUCKET = 'https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com';
+
 async function cacheParquetToOPFS(url, writable) {
   try {
-    const PARQUETURL=`https://ciroh-community-ngen-datastream.s3.us-east-1.amazonaws.com/${url}`;
-    const res = await fetch(PARQUETURL, { cache: "no-store" });
+    // An absolute url is used as given: the hydrofabric index lives on a different bucket.
+    const source = /^https?:\/\//i.test(url) ? url : `${DATASTREAM_BUCKET}/${url}`;
+    const res = await fetch(source, { cache: "no-store" });
     if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
 
     // Stream to disk; avoids loading the entire file in memory
