@@ -36,6 +36,7 @@ jest.mock('features/DataStream/lib/queryData', () => ({
 
 const queryData = require('features/DataStream/lib/queryData');
 const { loadVpu } = require('features/DataStream/actions/loadVpu');
+const { loadTimeseries } = require('features/DataStream/actions/loadTimeseries');
 const { DataMenuLoading } = require('features/DataStream/components/forecast/dataMenu');
 
 const initialTimeseriesState = useTimeSeriesStore.getState();
@@ -43,7 +44,7 @@ const initialDataStreamState = useDataStreamStore.getState();
 const initialVpuState = useVPUStore.getState();
 
 const load = (args) => act(async () => {
-  await useTimeSeriesStore.getState().loadTimeseries(args);
+  await loadTimeseries(args);
 });
 
 beforeEach(() => {
@@ -217,7 +218,7 @@ describe('superseded loads', () => {
         { time: '2022-08-01T01:00:00Z', flow: 9 },
       ]);
 
-    const first = useTimeSeriesStore.getState().loadTimeseries({ featureId: 'wb-1' });
+    const first = loadTimeseries({ featureId: 'wb-1' });
     await load({ featureId: 'wb-2' });
 
     await act(async () => {

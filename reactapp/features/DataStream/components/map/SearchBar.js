@@ -2,6 +2,7 @@ import React, {useEffect} from 'react';
 import { SearchBarWrapper, SearchIcon, SearchInput } from '../styles/Styles';
 import { loadIndexData, getFeatureProperties } from 'features/DataStream/lib/queryData';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import { loadTimeseries } from 'features/DataStream/actions/loadTimeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import {useFeatureStore} from 'features/DataStream/store/Layers';
 import {useShallow} from 'zustand/react/shallow';
@@ -16,12 +17,7 @@ const SearchBar = ({ placeholder = 'Search for an id' }) => {
     }))
   );
 
-  const { feature_id, loadTimeseries } = useTimeSeriesStore(
-    useShallow((s) => ({
-      feature_id: s.feature_id,
-      loadTimeseries: s.loadTimeseries,
-    }))
-  );
+  const feature_id = useTimeSeriesStore((s) => s.feature_id);
   
   const { set_selected_feature } = useFeatureStore(
     useShallow((s) => ({

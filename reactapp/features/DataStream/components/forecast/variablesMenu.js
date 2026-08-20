@@ -3,6 +3,7 @@ import { Row, IconLabel } from '../styles/Styles';
 import SelectComponent from '../SelectComponent';
 import { getVpuVariableFlat } from 'features/DataStream/lib/queryData';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import { loadTimeseries } from 'features/DataStream/actions/loadTimeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import { useVPUStore } from 'features/DataStream/store/Layers';
 import { useShallow } from 'zustand/react/shallow';
@@ -22,11 +23,10 @@ function VariablesMenu() {
     }))
   );
   
-  const { variable, set_variable, loadTimeseries, feature_id } = useTimeSeriesStore(
+  const { variable, set_variable, feature_id } = useTimeSeriesStore(
     useShallow((state) => ({
       variable: state.variable,
       set_variable: state.set_variable,
-      loadTimeseries: state.loadTimeseries,
       feature_id: state.feature_id,
     }))
   );
@@ -81,7 +81,6 @@ function VariablesMenu() {
     feature_id,
     setVarData,
     set_variable,
-    loadTimeseries,
   ]);
 
   return (

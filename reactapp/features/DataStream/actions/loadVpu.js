@@ -9,6 +9,7 @@ import {
 } from 'features/DataStream/lib/queryData';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import { loadTimeseries } from 'features/DataStream/actions/loadTimeseries';
 import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
 import { useVPUStore, useFeatureStore } from 'features/DataStream/store/Layers';
 import { useCacheTablesStore } from 'features/DataStream/store/CacheTables';
@@ -85,7 +86,7 @@ export async function loadVpu() {
 
     // Read at the point of use: the selection can have moved on while the vpu was loading.
     const { selected_feature } = useFeatureStore.getState();
-    await timeseries.loadTimeseries({ featureId: selected_feature?._id ?? null });
+    await loadTimeseries({ featureId: selected_feature?._id ?? null });
     if (superseded()) return;
 
     timeseries.set_loading_text('');

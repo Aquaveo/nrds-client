@@ -7,6 +7,7 @@ import { PathLayer } from "@deck.gl/layers";
 import Map, { Source, useControl } from 'react-map-gl/maplibre';
 import { Protocol } from 'pmtiles';
 import useTimeSeriesStore from '../../store/Timeseries';
+import { loadTimeseries } from '../../actions/loadTimeseries';
 import useDataStreamStore from '../../store/Datastream';
 import { useVPUStore } from '../../store/Layers';
 import { useLayersStore, useFeatureStore } from '../../store/Layers';
@@ -134,12 +135,7 @@ const MainMap = () => {
       enabledHovering: s.hovered_enabled,
     }))
   );
-  const { selectedFeatureId, loadTimeseries } = useTimeSeriesStore(
-    useShallow((s) => ({
-      selectedFeatureId: s.feature_id,
-      loadTimeseries: s.loadTimeseries,
-    }))
-  );
+  const selectedFeatureId = useTimeSeriesStore((s) => s.feature_id);
 
 
   const {
