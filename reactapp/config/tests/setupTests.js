@@ -3,7 +3,6 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
-import { server } from './mocks/server.js';
 
 // Mock `window.location` with Jest spies and extend expect
 import "jest-location-mock";
@@ -11,13 +10,27 @@ import "jest-location-mock";
 // Make .env files accessible to tests (path relative to project root)
 require('dotenv').config({ path: './reactapp/config/tests/test.env'});
 
-// Setup mocked Tethys API
-beforeAll(() => server.listen());
+// Setup mocked Tethys API.
+//
+// Loaded defensively because ./mocks/server.js cannot currently be imported at all. It still
+// uses msw v1's `rest` export, which v2 removed, and the installed msw v2 needs web globals
+// this jest/jsdom does not provide -- TextEncoder, then BroadcastChannel, then WritableStream,
+// and so on. That one import threw during setup, so every suite in the repo failed to load and
+// no test ran. Repairing it means upgrading jest/jsdom and porting the handlers to the v2 API;
+// until then this keeps the rest of the suite runnable, without HTTP mocking.
+let server = null;
+try {
+  server = require('./mocks/server.js').server;
+} catch (err) {
+  console.warn('msw mock server unavailable, HTTP mocking is disabled:', err.message);
+}
+
+beforeAll(() => server?.listen());
 // if you need to add a handler after calling setupServer for some specific test
 // this will remove that handler for the rest of them
 // (which is important for test isolation):
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+afterEach(() => server?.resetHandlers());
+afterAll(() => server?.close());
 
 // Mocks for tests involving plotly
 window.URL.createObjectURL = jest.fn();
