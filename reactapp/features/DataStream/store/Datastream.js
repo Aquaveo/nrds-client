@@ -5,6 +5,9 @@ const DEFAULTS = {
   bucket: "ciroh-community-ngen-datastream",
   nexus_pmtiles: "https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/nexus.pmtiles",
   community_pmtiles: "https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/merged.pmtiles",
+  // Flowpaths come from their own archive because merged.pmtiles only carries them from zoom 7.
+  flowpaths_pmtiles:
+    "https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/only_geometry/upstream_index/flowpaths.pmtiles",
   hydrofabric_index: "https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/hydrofabric_index.parquet",
   cache_key: null,
   vpu: null,

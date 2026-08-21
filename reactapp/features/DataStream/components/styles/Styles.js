@@ -1,4 +1,4 @@
-import styled from 'styled-components';
+import styled, { css } from 'styled-components';
 import { Button, Form, Modal } from 'react-bootstrap';
 import { FiSearch } from 'react-icons/fi';
 
@@ -11,30 +11,162 @@ export const TimeSeriesContainer = styled.div`
 `;
 
 // Themed Modal wrapper - now fully CSS-variable based
+/**
+ * How explanatory prose reads, wherever it appears.
+ *
+ * Shared by the one remaining dialog and by the notes that open inline, so the same paragraph
+ * does not get two different treatments depending on which container it landed in.
+ */
+const infoProse = css`
+  p,
+  li {
+    max-width: 68ch;
+  }
+
+  p {
+    margin-bottom: 12px;
+  }
+
+  p:last-child,
+  ul:last-child {
+    margin-bottom: 0;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  a {
+    color: var(--link-color);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    /* These are urls and file names: they have no spaces to break at. */
+    overflow-wrap: break-word;
+  }
+
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--nav-pill-active-bg);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+`;
+
+/**
+ * The dialog surface.
+ *
+ * It floats over the basemap, which is the one case the flat-shell rule allows a shadow for:
+ * the surface underneath is arbitrary imagery, so tonal layering cannot separate them.
+ *
+ * The body scrolls rather than the dialog growing past the viewport. The longest of these
+ * dialogs is a page of prose and a six-item list, which on a short window ran off the bottom
+ * with no way to reach the end.
+ */
 export const ThemedModal = styled(Modal)`
   .modal-content {
     background-color: var(--modal-bg);
     color: var(--modal-text-color);
-    border-radius: 12px;
+    border: 1px solid var(--modal-border-color);
+    border-radius: var(--radius-md);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   }
 
-  .modal-header,
+  .modal-header {
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--modal-border-color);
+  }
+
+  /* Styled here rather than through styled(Modal.Title): styled-components claims the "as"
+     prop for itself, so styled(Modal.Title) with as="h2" rendered a bare h2 and never called
+     Modal.Title at all, quietly dropping its class. */
+  .modal-title {
+    margin: 0;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-strong);
+    line-height: 1.3;
+  }
+
   .modal-footer {
     border-color: var(--modal-border-color);
   }
 
-  .btn-primary {
-    background-color: var(--button-primary-bg);
-    border: none;
+  /* Height is bootstrap's job here: the dialog is rendered scrollable, which sizes the body
+     against the viewport. A max-height of our own fought that and capped it short on tall
+     windows. */
+  .modal-body {
+    padding: 18px;
+    font-size: var(--text-md);
+    line-height: 1.6;
+    ${infoProse}
+  }
+`;
+
+/**
+ * A note that opens in place, under the control that asked for it.
+ *
+ * These were dialogs. Explaining what a layer is, while covering the layer, with a scrim over
+ * the map the explanation is about, meant dismissing the answer to look at the thing. Opening
+ * in place keeps both on screen, and costs no focus trap, no backdrop and no escape handling.
+ *
+ * It scrolls rather than pushing the panel it sits in out of shape: the layer note is four
+ * links and a paragraph inside a 250px overlay.
+ */
+export const InfoPanel = styled.div`
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border-color);
+  border-radius: 6px;
+  background-color: var(--panel-background);
+  color: var(--panel-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  max-height: 40vh;
+  overflow-y: auto;
+  ${infoProse}
+
+  strong {
+    color: var(--text-color);
+    font-weight: var(--weight-strong);
+  }
+`;
+
+/**
+ * The dialog's close control.
+ *
+ * Outside the title, deliberately. It lived inside Modal.Title, which is the element
+ * aria-labelledby points at, so the dialog announced itself as "Layer Information ✕".
+ */
+export const ModalCloseButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--modal-text-color);
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--nav-button-hover-bg);
   }
 
-  .btn-primary:hover,
-  .btn-primary:focus {
-    background-color: var(--button-primary-hover-bg);
-  }
-
-  .modal-body a {
-    color: var(--link-color);
+  &:focus-visible {
+    outline: 2px solid var(--nav-pill-active-bg);
+    outline-offset: 2px;
   }
 `;
 
@@ -112,58 +244,15 @@ export const LayersContainer = styled.div`
   color: var(--map-panel-text);
   z-index: 1000;
 
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow-y: auto;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Named, not "all": this container changes width at the 768px breakpoint, and "all" put that
+     width change on the transition. */
+  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
   @media (max-width: 768px) {
     width: 100%;
     border-radius: 0;
-  }
-`;
-
-export const CacheTableContainer = styled.div`
-  position: absolute;
-  top: calc(var(--ts-header-height) + 300px);
-  right: 10px;
-  // height: 300px;
-  overflow-y: scroll;
-  width: min(250px, calc(100vw - 32px));
-  padding: 15px;
-  background-color: var(--map-panel-bg);
-  color: var(--map-panel-text);
-  z-index: 1000;
-  border-radius: 8px;
-  font-size: 13px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-  @media (max-width: 768px) {
-    width: 100%;
-    border-radius: 0;
-  }
-`;
-export const CacheButton = styled(Button)`
-  top: 360px;
-  right: 1%;
-  position: absolute;
-  margin-top: 10px;
-  transition: transform 0.3s ease;
-
-  background-color: ${({ $bgColor = 'var(--button-primary-bg)' }) =>
-    $bgColor};
-  border: none;
-  color: var(--accent-text);
-  border-radius: 20px;
-  padding: 7px 8px;
-  z-index: 1001;
-
-  &:hover,
-  &:focus {
-    color: var(--hover-text);
-    background-color: ${({ $bgColor = 'var(--button-primary-bg)' }) => $bgColor};
-    border: none;
-    box-shadow: none;
   }
 `;
 
@@ -192,20 +281,53 @@ export const LayerButton = styled(Button)`
 `;
 
 export const XButton = styled(Button)`
-  background: var(--accent-text, #0a0e14);
-  border: 1px solid var(--border-color, #2a3a4a);
-  border-radius: var(--radius-sm, 4px);
+  background: var(--accent-text);
+  /* Was a --border-color fallback of #2a3a4a with a --radius-sm fallback of 4px. Neither token
+     existed, so both fell back and a dark navy border rendered in the light theme too. Both are
+     defined now, and this uses the panel border the rest of the app uses. */
+  border: 1px solid var(--panel-border-color);
+  border-radius: var(--radius-sm);
   color: var(--primary-color);
   padding: 7px 8px;
   width: 100%;
+  min-height: 44px;
   z-index: 1001;
   box-shadow: none;
-  &:hover,
-  &:focus {
+
+  &:hover:not(:disabled),
+  &:focus:not(:disabled) {
     background-color: var(--button-primary-hover-bg);
     color: var(--button-primary-text-hover);
     box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .3), 0 1px 3px 1px rgba(60, 64, 67, .15);
   }
+
+  /* Pressing it could only ever fail when there is nothing to read, so it says so by feel as
+     well as by the notice above it. */
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+/**
+ * A panel-level statement that something is missing.
+ *
+ * The empty state it replaces was a bare <p>No Outputs Available</p> in the panel's text flow,
+ * which read as a caption rather than as the reason the Update button cannot do anything.
+ */
+export const Notice = styled.p`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border-color);
+  border-radius: 6px;
+  background-color: var(--status-failed-bg);
+  color: var(--status-failed-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.35;
 `;
 
 export const SButton = styled(Button)`
@@ -232,20 +354,79 @@ export const SButton = styled(Button)`
 // styled from last_error rather than by matching the message text. The colours come from the
 // theme because the header is white in one and navy in the other -- a single hardcoded grey
 // measured 1.38:1 against the dark one, which is why nothing could be read.
+/**
+ * A prompt on the map, for when the view itself is why nothing is drawn.
+ *
+ * A button rather than a notice: telling someone to zoom in and making them find the control
+ * are different things, and the whole complaint was that the data could not be located.
+ */
+export const MapHint = styled.button`
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 28px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 18px;
+  border: 1px solid var(--panel-border-color);
+  border-radius: var(--radius-pill);
+  background-color: var(--map-panel-bg);
+  color: var(--map-panel-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+
+  &:hover {
+    background-color: var(--button-primary-hover-bg);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--nav-pill-active-bg);
+    outline-offset: 2px;
+  }
+`;
+
 export const StatusStrip = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
   margin-left: 12px;
   padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 0.95rem;
-  font-weight: 600;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   line-height: 1.2;
-  max-width: 32vw;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 0 0: it must not shrink. With flex-shrink allowed the pill was handed 209px for a 34
+     character message and clipped it silently, which is the same defect as the ellipsis with
+     the evidence removed. The search box shrinks instead. */
+  flex: 0 0 auto;
+
+  /* Shown whole, on one line. This clipped mid-word first ("Loading feature p"), then truncated
+     with an ellipsis, and a message whose entire job is to name what is missing is no use
+     ending in dots: "No streamflow data for cat-28..." does not say which catchment. The
+     longest message in the app is 54 characters, which at this size is about 430px including
+     the spinner, and the header has room for it once the search box stops claiming the row.
+     One line also keeps the navbar at its 56px min-height, which matters because the panels are
+     positioned against --ts-header-height rather than against the navbar itself. */
+  > span {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  /* Narrow viewports have no room for either, so the message wraps and the header grows with
+     it. Below this width the panels are full-width anyway. */
+  @media (max-width: 768px) {
+    > span {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+  }
   color: ${({ $failed }) =>
     $failed ? 'var(--status-failed-text)' : 'var(--status-text)'};
   background-color: ${({ $failed }) =>
@@ -343,9 +524,7 @@ export const Switch = styled(Form.Switch)`
     height: 18px;
     cursor: pointer;
     background-color: var(--switch-inactive);
-    // border-color: var(--ascend-text);
-    border-radius: 999px;
-    // border: none;
+    border-radius: var(--radius-pill);
     box-shadow: none;
   }
 
@@ -424,8 +603,11 @@ export const FieldValue = styled.div`
 export const SearchBarWrapper = styled.div`
   display: flex;
   align-items: center;
-  width: 100%;
-  max-width: 400px;
+  /* Yields rather than claiming the row. width: 100% made this take the whole header line and
+     squeeze the status message into a 213px column, where it wrapped to three lines and grew
+     the navbar to 80px while the panels stayed pinned to --ts-header-height at 56px. */
+  flex: 0 1 400px;
+  min-width: 0;
   padding: 6px 10px;
   border-radius: 6px;
   background-color: var(--search-bg);
@@ -446,7 +628,8 @@ export const SearchInput = styled.input`
   min-width: 0;
   font-size: var(--text-md);
   background: transparent;
-  color: var(--search-text);
+  color: ${({ $notFound }) =>
+    $notFound ? 'var(--status-failed-text)' : 'var(--search-text)'};
 
   /* A visible ring rather than outline: none. Keyboard users had no indication of focus in
      the app's most-used control. Drawn inside so it cannot widen the header. */
@@ -471,7 +654,7 @@ export const SearchButton = styled.button`
   margin-left: 8px;
   padding: 2px 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;

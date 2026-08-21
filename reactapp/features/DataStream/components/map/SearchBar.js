@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useShallow } from 'zustand/react/shallow';
 
+import Spinner from 'features/Tethys/components/loader/Spinner';
 import { SearchBarWrapper, SearchButton, SearchIcon, SearchInput } from '../styles/Styles';
 import { loadIndexData, getFeatureProperties } from 'features/DataStream/lib/queryData';
 import { loadTimeseries } from 'features/DataStream/actions/loadTimeseries';
@@ -21,6 +22,11 @@ import { useFeatureStore } from 'features/DataStream/store/Layers';
  *
  * Now the box owns its own text, searching is an explicit submit rather than a side effect of
  * typing, and it stays disabled with a plain explanation until the index is ready.
+ *
+ * A miss is reported through the store rather than the placeholder. The placeholder only paints
+ * on an empty input, and after a search the input still holds the id that was searched for, so
+ * "no feature with id x" was written somewhere it could never be seen. Searching for something
+ * absent looked exactly like searching for nothing, which is why it read as silently ignored.
  */
 const SearchBar = ({ placeholder = 'Search for an id' }) => {
   const { hydrofabric_index_url, vpu, set_vpu } = useDataStreamStore(
@@ -64,9 +70,15 @@ const SearchBar = ({ placeholder = 'Search for an id' }) => {
       const features = await getFeatureProperties({ cacheKey: 'index_data_table', feature_id: id });
       if (!features.length) {
         setNotFound(true);
+        // Through the store, not the placeholder; see the note above.
+        useTimeSeriesStore.setState({
+          loadingText: `No feature found with id ${id}`,
+          last_error: { kind: 'search-miss', featureId: id },
+        });
         return;
       }
       const feature = features[0];
+      useTimeSeriesStore.setState({ loadingText: '', last_error: null });
       set_selected_feature({ _id: id, ...feature });
 
       const vpuName = `VPU_${feature.vpuid}`;
@@ -86,7 +98,7 @@ const SearchBar = ({ placeholder = 'Search for an id' }) => {
     }
   }, [query, indexReady, searching, vpu, set_vpu, set_selected_feature]);
 
-  const label = indexReady ? placeholder : 'Building the id index…';
+  const label = indexReady ? placeholder : 'Building the id index';
 
   return (
     <SearchBarWrapper as="form" onSubmit={runSearch} role="search">
@@ -95,12 +107,18 @@ const SearchBar = ({ placeholder = 'Search for an id' }) => {
         type="text"
         value={query}
         onChange={(e) => { setQuery(e.target.value); setNotFound(false); }}
-        placeholder={notFound ? `No feature with id ${query}` : label}
+        placeholder={label}
         aria-label={placeholder}
+        aria-invalid={notFound || undefined}
+        $notFound={notFound}
         disabled={!indexReady}
       />
-      <SearchButton type="submit" disabled={!indexReady || searching || !query.trim()}>
-        {searching ? 'Searching…' : 'Search'}
+      <SearchButton
+        type="submit"
+        disabled={!indexReady || searching || !query.trim()}
+        aria-label={searching ? 'Searching' : 'Search'}
+      >
+        {searching ? <Spinner size={13} /> : 'Search'}
       </SearchButton>
     </SearchBarWrapper>
   );

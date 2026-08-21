@@ -55,3 +55,14 @@ afterAll(() => server?.close());
 // Mocks for tests involving plotly
 window.URL.createObjectURL = jest.fn();
 HTMLCanvasElement.prototype.getContext = jest.fn();
+
+// jsdom has no ResizeObserver, which @visx/responsive's ParentSize constructs on mount, so any
+// test rendering a chart through it dies with "LocalResizeObserver is not a constructor". The
+// stub reports nothing: tests that care about chart size pass width and height directly.
+if (typeof global.ResizeObserver === 'undefined') {
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

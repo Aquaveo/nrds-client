@@ -44,22 +44,27 @@ const press = async () => {
 
 describe('the visualize button', () => {
   it('asks for a feature when none is selected, and leaves the message up', async () => {
+    // An output file, so the button is pressable: without one it is disabled outright now.
+    useDataStreamStore.setState({ outputFile: 'troute.parquet' });
     render(<DataMenuControls />);
 
     await press();
 
-    expect(useTimeSeriesStore.getState().loadingText).toBe('Please select a feature on the map first');
+    expect(useTimeSeriesStore.getState().loadingText).toBe('Select a feature on the map first');
     expect(loadVpu).not.toHaveBeenCalled();
   });
 
-  it('asks for an output file once a feature and vpu are chosen', async () => {
+  it('cannot be pressed at all without an output file', async () => {
     useFeatureStore.setState({ selected_feature: { _id: 'cat-1' } });
     useDataStreamStore.setState({ vpu: 'VPU_01', outputFile: null });
     render(<DataMenuControls />);
 
+    // The refusal moved out of the press and into the control: a button whose only possible
+    // outcome is a complaint should not invite the press. The panel states the reason instead,
+    // which noOutputFile.test.js covers. The handler keeps its own guard for callers that are
+    // not this button.
+    expect(screen.getByRole('button', { name: /update/i })).toBeDisabled();
     await press();
-
-    expect(useTimeSeriesStore.getState().loadingText).toBe('No Output File selected');
     expect(loadVpu).not.toHaveBeenCalled();
   });
 
@@ -71,7 +76,7 @@ describe('the visualize button', () => {
 
     await press();
 
-    expect(useTimeSeriesStore.getState().loadingText).toBe('Data is already loading, please wait...');
+    expect(useTimeSeriesStore.getState().loadingText).toBe('Data is already loading, please wait');
     expect(loadVpu).not.toHaveBeenCalled();
   });
 
@@ -87,9 +92,10 @@ describe('the visualize button', () => {
   });
 
   it('drops the previous complaint when pressed again', async () => {
+    useDataStreamStore.setState({ outputFile: 'troute.parquet' });
     render(<DataMenuControls />);
     await press();
-    expect(useTimeSeriesStore.getState().loadingText).toMatch(/select a feature/);
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Select a feature/);
 
     // Inside act, so the handler sees the new values rather than the render it closed over.
     await act(async () => {
@@ -99,6 +105,6 @@ describe('the visualize button', () => {
     await press();
 
     // A stale refusal must not read as the answer to this press.
-    expect(useTimeSeriesStore.getState().loadingText).not.toMatch(/select a feature/);
+    expect(useTimeSeriesStore.getState().loadingText).not.toMatch(/Select a feature/);
   });
 });

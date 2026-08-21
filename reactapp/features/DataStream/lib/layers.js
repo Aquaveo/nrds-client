@@ -15,8 +15,24 @@ export const dividesHighlightOutlineColor =
   rootStyles.getPropertyValue('--map-divides-highlight-outline').trim() ||
   'rgba(253, 0, 253, 0.7)';
 
+/**
+ * The lowest zoom at which flowpath geometry exists.
+ *
+ * Read from the tileset, not chosen. This was 7, because merged.pmtiles declares
+ * conus_flowpaths as minzoom 7: below that its tiles carry no flowpath features at all, so
+ * queryRenderedFeatures came back empty, the animated PathLayer had nothing to build from, and
+ * playback over a wide view drew an empty frame.
+ *
+ * Flowpaths now come from upstream_index/flowpaths.pmtiles, which declares its `flowpaths`
+ * layer as zoom 1 to 10. Measured against the live archive, a zoom 2 tile over the Great Basin
+ * holds 16,665 reaches and a zoom 4 tile holds 7,466, both carrying numeric MVT feature ids
+ * that buildFeatureIdToIndex already registers alongside the wb- form. Low zooms hold a
+ * filtered subset rather than every reach, which is the right amount of detail at that scale.
+ */
+export const FLOWPATHS_MIN_ZOOM = 1;
+
 export const flowpathsLineColor =
-  rootStyles.getPropertyValue('--map-flowpaths-color').trim() || '#000000';
+  rootStyles.getPropertyValue('--map-flowpaths-color').trim() || '#0b0e10';
 
 export const gaugesCircleColor =
   rootStyles.getPropertyValue('--map-gauges-color').trim() || '#646464';
@@ -24,16 +40,35 @@ export const gaugesCircleColor =
 export const nexusCircleColor =
   rootStyles.getPropertyValue('--map-nexus-circle-color').trim() || '#1f78b4';
 export const nexusStrokeColor =
-  rootStyles.getPropertyValue('--map-nexus-stroke-color').trim() || '#ffffff';
+  rootStyles.getPropertyValue('--map-nexus-stroke-color').trim() || '#f7fafe';
 export const nexusHighlightCircleColor =
   rootStyles.getPropertyValue('--map-nexus-highlight-circle-color').trim() ||
   nexusCircleColor;
+
+/**
+ * Our flowpaths layer, and the one in the basemap style it stands in for.
+ *
+ * A distinct id is load bearing. The style at map/styles/*-style.json already defines a layer
+ * called `flowpaths` on its own `hydrofabric` source, and react-map-gl updates an existing
+ * layer rather than replacing it: its updateLayer only touches layout, paint, filter and zoom
+ * range, never the source. Reusing the id meant this layer silently kept reading merged.pmtiles
+ * no matter what source was declared here, so pointing it at an archive that carries flowpaths
+ * below zoom 7 would have done nothing at all.
+ */
+export const FLOWPATHS_LAYER_ID = 'flowpaths-line';
+const STYLE_FLOWPATHS_LAYER_ID = 'flowpaths';
+
+/** Hide the basemap style's own flowpaths, so it neither double-draws nor answers queries. */
+export const hideStyleFlowpaths = (map) => {
+  if (!map?.getLayer?.(STYLE_FLOWPATHS_LAYER_ID)) return;
+  map.setLayoutProperty(STYLE_FLOWPATHS_LAYER_ID, 'visibility', 'none');
+};
 
 export const reorderLayers = (map) => {
   if (!map) return;
   // Draw order from bottom → top
   const LAYER_ORDER = [
-    'flowpaths',
+    FLOWPATHS_LAYER_ID,
     'conus-gauges',
     'divides',
     'divides-highlight',
@@ -94,9 +129,18 @@ export const getCentroid = (feature) => {
   return { lon: sumLon / positions.length, lat: sumLat / positions.length };
 };
 
+/**
+ * Colours for the legend symbols.
+ *
+ * These mirror the --map-* tokens by value rather than reading them, so the legend and the map
+ * can drift apart; worth reconciling, but reading them live is a bigger change than it looks,
+ * because the constants at the top of this file are resolved once at module load and would
+ * freeze the legend at whichever theme was active then. The pure white and pure black are gone:
+ * they are the tinted neutrals the map tokens already use.
+ */
 export const symbologyColors = (theme) => ({
       nexusFill: theme === 'dark' ? '#4f5b67' : '#1f78b4',
-      nexusStroke: theme === 'dark' ? '#e9ecef' : '#ffffff',
+      nexusStroke: theme === 'dark' ? '#e9ecef' : '#f7fafe',
       catchmentFill:
         theme === 'dark'
           ? 'rgba(238, 51, 119, 0.32)'
@@ -105,9 +149,9 @@ export const symbologyColors = (theme) => ({
         theme === 'dark'
           ? 'rgba(238, 51, 119, 0.9)'
           : 'rgba(91, 44, 111, 0.9)',
-      flowStroke: theme === 'dark' ? '#0077bb' : '#000000',
+      flowStroke: theme === 'dark' ? '#0077bb' : '#0b0e10',
       gaugeFill: theme === 'dark' ? '#c8c8c8' : '#646464',
-      gaugeStroke: theme === 'dark' ? '#111827' : '#ffffff',
+      gaugeStroke: theme === 'dark' ? '#111827' : '#f7fafe',
 })
 
 export const getSymbology = (typeSymbol, colors) => {
@@ -198,7 +242,7 @@ export const GaugeSymbol = ({ fill, stroke }) => (
 
 export const CursorSymbol = ({
   fill = '#1f78b4',
-  stroke = '#ffffff',
+  stroke = '#f7fafe',
 }) => (
   <svg
     width="18"
@@ -529,11 +573,51 @@ export function computeBounds(varData) {
 }
 
 
+/**
+ * A fresh store for collected paths.
+ *
+ * A factory rather than `new Map()` at the call site, because the map component imports
+ * react-map-gl's default export as `Map`, which shadows the global. Constructing it there
+ * built the React component instead of a Map and the whole map failed to initialise with
+ * "is not a constructor", which no test caught because none of them render a canvas.
+ */
+export const createPathStore = () => new Map();
+
+/**
+ * The id a rendered map feature is known by.
+ *
+ * Tilesets disagree about where it lives, and reading only one of the two places is what has
+ * now broken twice. merged.pmtiles puts it in properties as "wb-2862525" and leaves the MVT
+ * feature id null; upstream_index/flowpaths.pmtiles puts the bare number on the feature itself
+ * and carries no properties.id at all. Everything that needs a feature's identity goes through
+ * here so the next tileset change is one edit rather than a hunt.
+ */
+export const mapFeatureId = (feature) =>
+  feature?.id ?? feature?.properties?.id ?? feature?.properties?.divide_id ?? null;
+
+/**
+ * Add any paths not already collected, and report how many were new.
+ *
+ * Keyed on the path id so a reach seen from three different viewports is stored once. The
+ * count is what tells the caller whether to hand deck.gl a new array, which replaced comparing
+ * a signature of the viewport's whole feature set: accumulating only ever grows, so "did
+ * anything arrive" is both cheaper to answer and the actual question.
+ */
+export function addPaths(store, features, featureIdToIndex) {
+  let added = 0;
+  for (const path of convertFeaturesToPaths(features, featureIdToIndex)) {
+    if (store.has(path.id)) continue;
+    store.set(path.id, path);
+    added += 1;
+  }
+  return added;
+}
+
 export function convertFeaturesToPaths(features, featureIdToIndex) {
   const out = [];
 
   for (const f of features) {
-    const rawId = f.id ?? f.properties?.id;
+    const rawId = mapFeatureId(f);
     if (rawId == null) continue;
 
     const id = String(rawId);
@@ -555,26 +639,3 @@ export function convertFeaturesToPaths(features, featureIdToIndex) {
   return out;
 }
 
-export function flowpathsSignature(features) {
-  const parts = [];
-
-  for (const f of features) {
-    const rawId = f.id ?? f.properties?.id;
-    if (rawId == null) continue;
-
-    const id = String(rawId);
-    const g = f.geometry;
-    if (!g) continue;
-
-    if (g.type === "LineString") {
-      parts.push(`${id}:L:${g.coordinates.length}`);
-    } else if (g.type === "MultiLineString") {
-      const lines = g.coordinates.length;
-      const totalPts = g.coordinates.reduce((sum, line) => sum + line.length, 0);
-      parts.push(`${id}:M:${lines}:${totalPts}`);
-    }
-  }
-
-  parts.sort(); // make stable regardless of render order
-  return parts.join("|");
-}

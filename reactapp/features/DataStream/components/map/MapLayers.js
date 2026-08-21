@@ -1,6 +1,7 @@
 // mapLayers.js
 import React, { useMemo } from 'react';
 import { Layer } from 'react-map-gl/maplibre';
+import { FLOWPATHS_LAYER_ID } from 'features/DataStream/lib/layers';
 
 /**
  * Catchment (divides) layers
@@ -62,25 +63,35 @@ export function useCatchmentLayers({
 }
 
 /**
- * Flowpaths layer
+ * Flowpaths layer.
+ *
+ * Drawn from its own archive rather than from merged.pmtiles, which carries flowpaths only from
+ * zoom 7 up. upstream_index/flowpaths.pmtiles carries them from zoom 1, which is what lets the
+ * deck.gl animation draw over a wide view: its geometry is read back out of this layer with
+ * queryRenderedFeatures, so wherever this renders, the animation can follow.
+ *
+ * Nothing clicks or hovers flowpaths, so the properties this archive drops (vpuid, divide_id,
+ * lengthkm) cost nothing. Its numeric MVT feature ids match the value array through
+ * buildFeatureIdToIndex, which registers both the bare id and the wb- form.
+ *
+ * The ramps stay modest at low zoom: every available reach across CONUS at once is a lot of
+ * ink, and the animation's own colour is what should carry there.
  */
 export function useFlowPathsLayer({ isFlowPathsVisible, flowpathsLineColor }) {
   return useMemo(() => {
     if (!isFlowPathsVisible) return null;
 
     return (
-      // null
       <Layer
-        key="flowpaths"
-        id="flowpaths"
+        key={FLOWPATHS_LAYER_ID}
+        id={FLOWPATHS_LAYER_ID}
         type="line"
-        source="hydrofabric"
-        source-layer="conus_flowpaths"
+        source="flowpath-geometry"
+        source-layer="flowpaths"
         paint={{
           'line-color': flowpathsLineColor,
-          'line-width': { stops: [[7, 1], [10, 2]] },
-          // 'line-opacity': 0,
-          'line-opacity': { stops: [[7, 0], [11, 1]] },
+          'line-width': { stops: [[2, 0.6], [7, 1], [10, 2]] },
+          'line-opacity': { stops: [[2, 0.45], [7, 0.7], [10, 1]] },
         }}
       />
     );
@@ -166,7 +177,7 @@ export function useNexusLayers({
         paint={{
           'circle-radius': 10,
           'circle-stroke-width': 3,
-          'circle-stroke-color': '#ffffff',
+          'circle-stroke-color': nexusStrokeColor,
           'circle-color': nexusHighlightCircleColor,
         }}
       />

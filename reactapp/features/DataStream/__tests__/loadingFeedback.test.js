@@ -309,11 +309,11 @@ describe('vpu load failures', () => {
   it('can be retried by asking for the same vpu again', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
     queryData.checkForTable.mockRejectedValueOnce(new Error('s3 unreachable'));
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
 
     await act(async () => { await loadVpu(); });
     expect(queryData.checkForTable).toHaveBeenCalledTimes(1);
-    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load VPU data/);
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/Failed to load data for VPU_01/);
 
     // Asking again is the retry; the effect this replaced could never re-run.
     await act(async () => { await loadVpu(); });
@@ -363,7 +363,7 @@ describe('vpu load failures', () => {
   });
 
   it('loads the vpu and charts the selected feature', async () => {
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
     queryData.getVariables.mockResolvedValue(['flow', 'precipitation']);
     queryData.getDistinctFeatureIds.mockResolvedValue(['wb-1']);
     queryData.getDistinctTimes.mockResolvedValue(['2022-08-01T00:00:00Z']);
@@ -386,11 +386,11 @@ describe('vpu load failures after the table check', () => {
   ])('reports a generic vpu failure when %s rejects', async (_name, fn) => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
     queryData[fn].mockRejectedValueOnce(new Error('query blew up'));
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
 
     await act(async () => { await loadVpu(); });
 
-    expect(useTimeSeriesStore.getState().loadingText).toBe('Failed to load VPU data for cacheKey: vpu-01');
+    expect(useTimeSeriesStore.getState().loadingText).toBe('Failed to load data for VPU_01');
     expect(useTimeSeriesStore.getState().last_error).toEqual({ kind: 'vpu', cacheKey: 'vpu-01' });
     expect(useTimeSeriesStore.getState().loading).toBe(false);
     consoleError.mockRestore();
@@ -412,7 +412,7 @@ describe('vpu load failures after the table check', () => {
 describe('failures are readable without parsing prose', () => {
   it('names the feature and variable a series load failed on', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
     queryData.getTimeseries.mockRejectedValueOnce(new Error('nope'));
 
     await load({ featureId: 'wb-505', variable: 'flow' });
@@ -439,7 +439,7 @@ describe('failures are readable without parsing prose', () => {
 describe('the in-flight counters always come back down', () => {
   it('does not wedge clicks when the vpu reset itself throws', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
     const resetVPU = useVPUStore.getState().resetVPU;
     useVPUStore.setState({
       resetVPU: () => { throw new Error('reset exploded'); },
@@ -480,7 +480,7 @@ describe('a vpu load and a series load together', () => {
   it('keeps the series failure message its own vpu load produced', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
     useFeatureStore.setState({ selected_feature: { _id: 'wb-77' } });
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
     queryData.getTimeseries.mockRejectedValueOnce(new Error('table gone'));
 
     await act(async () => { await loadVpu(); });
@@ -492,7 +492,7 @@ describe('a vpu load and a series load together', () => {
   });
 
   it('still clears the message when there was no feature to chart', async () => {
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
 
     await act(async () => { await loadVpu(); });
 
@@ -502,7 +502,7 @@ describe('a vpu load and a series load together', () => {
   it('defers a click that lands while the vpu is still loading', async () => {
     const gate = deferred();
     queryData.checkForTable.mockImplementationOnce(() => gate.promise);
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
 
     const vpuLoad = loadVpu();
     await load({ featureId: 'wb-88' });
@@ -522,7 +522,7 @@ describe('a vpu load and a series load together', () => {
   it('stops a series load that a vpu load has overtaken', async () => {
     const gate = deferred();
     queryData.getTimeseries.mockImplementationOnce(() => gate.promise);
-    useDataStreamStore.setState({ cache_key: 'vpu-01' });
+    useDataStreamStore.setState({ cache_key: 'vpu-01', vpu: 'VPU_01' });
 
     const series = loadTimeseries({ featureId: 'wb-11' });
     await act(async () => { await loadVpu(); });

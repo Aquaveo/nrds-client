@@ -2,15 +2,15 @@ import { useLayersStore } from '../../store/Layers';
 import { Fragment, useMemo, useState } from 'react';
 import { Switch } from  '../styles/Styles';
 import { IoLayers } from "react-icons/io5";
-import { MdInfoOutline } from "react-icons/md";
-import { IconLabel, Row, Title, SButton} from '../styles/Styles';
+import { IconLabel, Row, Title, InfoPanel } from '../styles/Styles';
 import { NexusSymbol, CatchmentSymbol, FlowPathSymbol, GaugeSymbol, symbologyColors, CursorSymbol } from '../../lib/layers';
-import { LayerInfoModal } from '../Modals';
+import { InfoToggle } from '../InfoDisclosure';
+import { LayerInfoContent } from '../InfoContent';
 import { useTheme } from 'styled-components';
 
 export const LayerControl = () => {
   const theme = useTheme()
-  const [modalLayerInfoShow, setModalLayerInfoShow] = useState(false);
+  const [layerInfoOpen, setLayerInfoOpen] = useState(false);
   
   const nexusLayer = useLayersStore((state) => state.nexus);
   const catchmentLayer = useLayersStore((state) => state.catchments);
@@ -65,11 +65,19 @@ export const LayerControl = () => {
       <IconLabel>
         <IoLayers />
         <Title>Layer Options</Title>
-        <SButton bsPrefix='btn2' onClick={() => setModalLayerInfoShow(true)}>
-          <MdInfoOutline size={15} />
-        </SButton>
-
+        <InfoToggle
+          open={layerInfoOpen}
+          onToggle={setLayerInfoOpen}
+          controls="layer-info"
+          label="layer information"
+        />
       </IconLabel>
+
+      {layerInfoOpen && (
+        <InfoPanel id="layer-info">
+          <LayerInfoContent />
+        </InfoPanel>
+      )}
 
 
       {/* <Content> */}
@@ -151,10 +159,6 @@ export const LayerControl = () => {
           title="Toggle Conus Gauges Layer visualization"
         />
       </Row>
-      <LayerInfoModal
-        show={modalLayerInfoShow}
-        onHide={() => setModalLayerInfoShow(false)}
-      />
     </Fragment>
   );
 };

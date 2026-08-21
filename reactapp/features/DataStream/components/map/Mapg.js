@@ -22,11 +22,18 @@ import {
   nexusHighlightCircleColor,
   reorderLayers, 
   computeBounds, 
-  convertFeaturesToPaths, 
 } from '../../lib/layers';
-import { flowpathsSignature, mapStyleUrl } from '../../lib/layers';
-import { flowPathLayerProps } from './flowPathLayer';
+import {
+  FLOWPATHS_LAYER_ID,
+  FLOWPATHS_MIN_ZOOM,
+  addPaths,
+  createPathStore,
+  hideStyleFlowpaths,
+  mapStyleUrl,
+} from '../../lib/layers';
+import { flowPathLayerProps, shouldPromptZoom } from './flowPathLayer';
 import { selectMapFeature } from '../../actions/selectFeature';
+import { hoveredFeatureOf, pickHoverFeature } from '../../actions/hoverFeature';
 
 import {
   useCatchmentLayers,
@@ -34,6 +41,10 @@ import {
   useConusGaugesLayer,
   useNexusLayers,
 } from './MapLayers';
+import { MapHint } from '../styles/Styles';
+
+const INITIAL_VIEW = { longitude: -96, latitude: 40, zoom: 4 };
+const EMPTY_PATHS = [];
 
 
 function DeckGLOverlay(props) {
@@ -115,10 +126,12 @@ const MainMap = () => {
   const {
     nexus_pmtiles,
     conus_pmtiles,
+    flowpaths_pmtiles,
   } = useDataStreamStore(
     useShallow((s) => ({
       nexus_pmtiles: s.nexus_pmtiles,
       conus_pmtiles: s.community_pmtiles,
+      flowpaths_pmtiles: s.flowpaths_pmtiles,
     }))
   );
 
@@ -144,10 +157,34 @@ const MainMap = () => {
 
   const mapRef = useRef(null);
   const hoverMapRef = useRef(null);
-  const lastSigRef = useRef("");
-  const pathDataRef = useRef([]);
+  const pathsByIdRef = useRef(createPathStore());
+  const pathDataRef = useRef(EMPTY_PATHS);
 
   const [pathTick, setPathTick] = useState(0);
+  const [zoom, setZoom] = useState(INITIAL_VIEW.zoom);
+
+  // pathTick is what re-renders this, so reading the ref during render is current.
+  const belowFlowpathZoom = shouldPromptZoom({
+    visible: isFlowPathsVisible,
+    valuesByVar,
+    timesArr,
+    zoom,
+    collectedPaths: pathDataRef.current.length,
+  });
+
+  const zoomToFlowpaths = useCallback(() => {
+    const map = mapRef.current?.getMap?.() ?? mapRef.current;
+    if (!map) return;
+
+    // Toward the selection when there is one, since the data's location is the question.
+    const lat = selectedMapFeature?.lat ?? selectedMapFeature?.latitude;
+    const lon = selectedMapFeature?.lon ?? selectedMapFeature?.longitude;
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      map.flyTo({ center: [lon, lat], zoom: FLOWPATHS_MIN_ZOOM + 1, essential: true });
+      return;
+    }
+    map.easeTo({ zoom: FLOWPATHS_MIN_ZOOM + 1, essential: true });
+  }, [selectedMapFeature]);
 
 
 
@@ -197,6 +234,7 @@ const MainMap = () => {
     });
     hoverMapRef.current = map;
 
+    hideStyleFlowpaths(map);
     reorderLayers(map);
 
   }, [hoverLayers, isMapUsable, removeHoverListeners, resetPointerCursor, setPointerCursor]);
@@ -220,28 +258,13 @@ const MainMap = () => {
       return;
     }
 
-    const feature = features[0];
-    const layerId = feature.layer.id;
-
-    const hoverId =
-      layerId === "divides"
-        ? feature.properties?.divide_id
-        : feature.properties?.id;
-
-    if (!hoverId) {
+    const next = hoveredFeatureOf(pickHoverFeature(features), lngLat);
+    if (!next) {
       if (prev !== null) set_hovered_feature(null);
       return;
     }
 
-    if (prev?.hoverId === hoverId) return;
-
-    const next = {
-      ...feature.properties,
-      hoverId,
-      longitude: lngLat.lng,
-      latitude: lngLat.lat,
-    };
-
+    if (prev?.hoverId === next.hoverId) return;
     set_hovered_feature(next);
   }, [enabledHovering, set_hovered_feature]);
 
@@ -296,6 +319,14 @@ const MainMap = () => {
   }, [isNexusVisible, isCatchmentsVisible, isFlowPathsVisible, isConusGaugesVisible]);
 
  
+  // Paths belong to the vpu whose values they are drawn from: featureIndex points into that
+  // vpu's flat array, so carrying them over would colour one dataset with another's numbers.
+  useEffect(() => {
+    pathsByIdRef.current = createPathStore();
+    pathDataRef.current = EMPTY_PATHS;
+    setPathTick((t) => t + 1);
+  }, [featureIdToIndex]);
+
   useEffect(() => {
     const map = mapRef.current?.getMap?.() ?? mapRef.current;
     if (!map) return;
@@ -309,25 +340,26 @@ const MainMap = () => {
       if (raf) cancelAnimationFrame(raf);
 
       raf = requestAnimationFrame(() => {
+        raf = null;
         if (!isFlowPathsVisible) return;
 
-        const feats = map.queryRenderedFeatures({ layers: ["flowpaths"] });
+        // Handed over whole. This used to pre-filter on properties.id, which duplicated the id
+        // resolution addPaths already does and only half of it: merged.pmtiles put the id in
+        // properties as wb-2862525, upstream_index puts it on the feature itself and has no
+        // properties.id at all, so the filter dropped every feature and nothing was ever
+        // collected. One place decides what a feature's id is.
+        const feats = map.queryRenderedFeatures({ layers: [FLOWPATHS_LAYER_ID] });
 
-        const matched = feats.filter(
-          (f) => featureIdToIndex[f.properties?.id] !== undefined
-        );
+        // Kept, not replaced. This used to hold only what the viewport was rendering, so
+        // moving away from a reach dropped it and zooming below the tileset's flowpath minzoom
+        // dropped everything, which is why playback over a wide view drew nothing at all.
+        // Accumulating means the geometry survives the view that produced it, and deck.gl has
+        // no zoom limit of its own, so it keeps drawing at any scale.
+        const added = addPaths(pathsByIdRef.current, feats, featureIdToIndex);
+        if (!added) return;
 
-        const sig = flowpathsSignature(matched);
-        if (sig === lastSigRef.current) {
-          raf = null;
-          return;
-        }
-        lastSigRef.current = sig;
-
-        pathDataRef.current = convertFeaturesToPaths(matched, featureIdToIndex);
+        pathDataRef.current = [...pathsByIdRef.current.values()];
         setPathTick((t) => t + 1);
-
-        raf = null;
       });
     };
 
@@ -391,18 +423,27 @@ const MainMap = () => {
   return (
     <Map
       ref={mapRef}
-      initialViewState={{ longitude: -96, latitude: 40, zoom: 4 }}
+      initialViewState={INITIAL_VIEW}
       style={{ width: '100%', height: '100%' }}
       mapLib={maplibregl}
       mapStyle={mapStyleUrl}
       onClick={handleMapClick}
       onLoad={handleMapLoad}
       onMouseMove={onHover}
-      interactiveLayerIds={['divides', 'nexus-points', 'flowpaths', 'conus-gauges']}
+      onZoomEnd={(e) => setZoom(e.viewState.zoom)}
+      interactiveLayerIds={['divides', 'nexus-points', FLOWPATHS_LAYER_ID, 'conus-gauges']}
     >
+      <Source
+        key="flowpath-geometry"
+        id="flowpath-geometry"
+        type="vector"
+        url={`pmtiles://${flowpaths_pmtiles}`}
+      >
+        {flowPathsLayer}
+      </Source>
+
       <Source key="conus" id="conus" type="vector" url={`pmtiles://${conus_pmtiles}`}>
         {catchmentLayer}
-        {flowPathsLayer}
         {conusGaugesLayer}
       </Source>
 
@@ -418,6 +459,11 @@ const MainMap = () => {
         pathTick={pathTick}
       />
       <CustomPopUp hovered_feature={hovered_feature} enabledHovering={enabledHovering} />
+      {belowFlowpathZoom && (
+        <MapHint type="button" onClick={zoomToFlowpaths}>
+          Flowpaths are only mapped from zoom {FLOWPATHS_MIN_ZOOM}. Zoom in to see the animation.
+        </MapHint>
+      )}
     </Map>
   );
 };

@@ -1,6 +1,6 @@
 // DataMenu.js
 import React, { Fragment, useMemo } from 'react';
-import { XButton, Row, IconLabel } from '../styles/Styles';
+import { XButton, Row, IconLabel, Notice } from '../styles/Styles';
 import SelectComponent from '../SelectComponent';
 import { getOptionsFromURL, makePrefix } from 'features/DataStream/lib/s3Utils';
 import { getCacheKey } from 'features/DataStream/lib/opfsCache';
@@ -8,7 +8,7 @@ import { loadVpu } from 'features/DataStream/actions/loadVpu';
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
 import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
-import { useFeatureStore } from 'features/DataStream/store/Layers';
+import { useFeatureStore, useVPUStore } from 'features/DataStream/store/Layers';
 import { useShallow } from 'zustand/react/shallow';
 import {
   ModelIcon,
@@ -105,20 +105,49 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
     }))
   );
 
+  /**
+   * Apply an output-file listing, and stop showing stale data when it is empty.
+   *
+   * An empty listing means nothing in this selection can be read, and pressing Update cannot
+   * change that. Without clearing here, the flowpath animation and chart from the previous
+   * output file stayed on screen indefinitely, presented as if they belonged to the selection
+   * now showing in the controls. The selection itself is left alone: the panel is only open
+   * because a feature is selected, so resetting that would close it mid-interaction.
+   */
+  const applyOutputFiles = useEvent((options) => {
+    setAvailableOutputFiles(options);
+    set_outputFile(options[0]?.value ?? '');
+    if (options.length) return;
+
+    useVPUStore.getState().resetVPU();
+    useTimeSeriesStore.getState().reset_series();
+    useTimeSeriesStore.setState({
+      loadingText: 'No output file for this selection',
+      last_error: { kind: 'no-output-file' },
+    });
+  });
+
   const handleVisulization = useEvent(async () => {
     const { loading, set_loading_text } = useTimeSeriesStore.getState();
     // Clear last press's complaint first, so a stale one cannot read as this press's answer.
     set_loading_text('');
+    // Flagged as errors so the status strip styles them as refusals rather than as progress.
     if (!selected_feature_id || !vpu) {
-      set_loading_text('Please select a feature on the map first');
+      useTimeSeriesStore.setState({
+        loadingText: 'Select a feature on the map first',
+        last_error: { kind: 'no-selection' },
+      });
       return;
     }
     if (!outputFile) {
-      set_loading_text('No Output File selected');
+      useTimeSeriesStore.setState({
+        loadingText: 'This model run has no output file to read',
+        last_error: { kind: 'no-output-file' },
+      });
       return;
     }
     if (loading) {
-      set_loading_text('Data is already loading, please wait...');
+      set_loading_text('Data is already loading, please wait');
       return;
     }
     // reset();
@@ -168,8 +197,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${opt.value}/v2.2_hydrofabric/${nextDate}/${nextForecast}/${nextCycle}/${nextEns}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     } else {
       setAvailableEnsembleList([]);
       set_ensemble('');
@@ -177,8 +205,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${opt.value}/v2.2_hydrofabric/${nextDate}/${nextForecast}/${nextCycle}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     }
 
   });
@@ -213,8 +240,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${model}/v2.2_hydrofabric/${opt.value}/${nextForecast}/${nextCycle}/${nextEns}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     } else {
       setAvailableEnsembleList([]);
       set_ensemble('');
@@ -222,8 +248,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${model}/v2.2_hydrofabric/${opt.value}/${nextForecast}/${nextCycle}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     }
 
   });
@@ -252,8 +277,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/${nextCycle}/${nextEns}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     } else {
       setAvailableEnsembleList([]);
       set_ensemble('');
@@ -261,8 +285,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${model}/v2.2_hydrofabric/${date}/${opt.value}/${nextCycle}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     }
   });
 
@@ -283,8 +306,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/${nextEns}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     } else {
       setAvailableEnsembleList([]);
       set_ensemble('');
@@ -292,8 +314,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
       const outputFileOptions = await getOptionsFromURL(
         `outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${opt.value}/${vpu}/ngen-run/outputs/troute/`
       );
-      setAvailableOutputFiles(outputFileOptions);
-      set_outputFile(outputFileOptions[0]?.value ?? '');
+      applyOutputFiles(outputFileOptions);
     }
   });
 
@@ -306,8 +327,7 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
     const outputFileOptions = await getOptionsFromURL(
       `outputs/${model}/v2.2_hydrofabric/${date}/${forecast}/${cycle}/${opt.value}/${vpu}/ngen-run/outputs/troute/`
     );
-    setAvailableOutputFiles(outputFileOptions);
-    set_outputFile(outputFileOptions[0]?.value ?? '');
+    applyOutputFiles(outputFileOptions);
   });
 
   const handleChangeOutputFile = useEvent((v) => {
@@ -488,10 +508,21 @@ export const DataMenuControls = React.memo(function DataMenuControls() {
         </Row>
       ))}
 
-      {availableOutputFiles?.length > 0 ? null : <p>No Outputs Available</p>}
+      {availableOutputFiles?.length > 0 ? null : (
+        <Notice role="alert">
+          <FileIcon aria-hidden="true" />
+          <span>No output file for this selection</span>
+        </Notice>
+      )}
 
-      <div style={{ marginTop: '10px', paddingLeft: '100px', paddingRight: '100px' }}>
-        <XButton onClick={handleVisulization}>Update</XButton>
+      <div style={{ marginTop: '10px' }}>
+        <XButton
+          onClick={handleVisulization}
+          disabled={!outputFile}
+          title={outputFile ? 'Load this selection' : 'No output file to load'}
+        >
+          Update
+        </XButton>
       </div>
     </Fragment>
   );

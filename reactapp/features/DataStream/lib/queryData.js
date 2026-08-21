@@ -1,5 +1,11 @@
 // // nexusTimeseries.js
-import { statFromCache, saveDataToCache, createTableFromOPFS, formatBytes } from "./opfsCache";
+import {
+  statFromCache,
+  saveDataToCache,
+  createTableFromOPFS,
+  formatBytes,
+  tableNameForKey,
+} from "./opfsCache";
 
 import { getConnection } from "./duckdbClient";
 
@@ -183,13 +189,25 @@ export async function loadVpuData(
   return fileSize;
 }
 
+/**
+ * Whether the table for a cache key is registered in duckdb.
+ *
+ * Asked with the name the table was created under. This compared the raw cache key, extension
+ * and all, against names that createTableFromOPFS had already stripped, so it answered false
+ * for every parquet key it was ever given. loadVpu therefore re-ran its whole load on every
+ * call and appended another row to the cached-files list each time, which is what filled the
+ * panel with identical entries; the table was never actually rebuilt, and nothing was
+ * re-downloaded, but the work was wasted and a series load asking the same question repeated
+ * it on every catchment click.
+ */
 export async function checkForTable(cacheKey) {
-  const conn = await getConnection(); 
+  const conn = await getConnection();
+  const tableName = tableNameForKey(cacheKey);
   try {
     const existsResult = await conn.query(`
       SELECT COUNT(*) AS cnt
       FROM information_schema.tables
-      WHERE table_name = '${cacheKey}'
+      WHERE table_name = '${tableName}'
     `);
 
     const exists = existsResult.toArray()[0].cnt > 0;

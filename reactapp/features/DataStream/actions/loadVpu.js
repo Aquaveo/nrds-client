@@ -49,7 +49,7 @@ export async function loadVpu() {
     timeseries.reset();
     useVPUStore.getState().resetVPU();
     beginLoading();
-    timeseries.set_loading_text('Loading feature properties...');
+    timeseries.set_loading_text(`Loading ${vpu}`);
 
     const tableExists = await checkForTable(cacheKey);
     if (superseded()) return;
@@ -57,13 +57,11 @@ export async function loadVpu() {
     if (!tableExists) {
       try {
         const { prefix } = useS3DataStreamBucketStore.getState();
-        const fileSize = await fetchVpuTable(cacheKey, prefix);
+        await fetchVpuTable(cacheKey, prefix);
         if (superseded()) return;
-        useCacheTablesStore.getState().add_cacheTable({
-          id: cacheKey,
-          name: cacheKey.replaceAll('_', ' '),
-          size: fileSize,
-        });
+        // Read back rather than appended: fetching evicts the previous file, so what is on
+        // disk afterwards is the only thing that knows what the cache now holds.
+        await useCacheTablesStore.getState().refresh();
       } catch (err) {
         if (superseded()) return;
         console.error('No data for VPU', vpu, err);
@@ -105,7 +103,9 @@ export async function loadVpu() {
   } catch (err) {
     if (superseded()) return;
     useTimeSeriesStore.setState({
-      loadingText: `Failed to load VPU data for cacheKey: ${cacheKey}`,
+      // Named by the vpu, not the cache key: the key runs to about a hundred characters and
+      // this message is read in a header pill. Guarded, so a missing vpu is not printed.
+      loadingText: vpu ? `Failed to load data for ${vpu}` : 'Failed to load the selected data',
       last_error: { kind: 'vpu', cacheKey },
     });
     console.error('Failed to load VPU data for cacheKey:', cacheKey, err);

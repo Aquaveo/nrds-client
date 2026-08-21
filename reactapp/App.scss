@@ -37,6 +37,17 @@ $theme-colors: (
    --primary-color: oklch(0.985 0.006 249);
   --title-text-color: #5f6368;
   --ts-header-height: 56px;
+  --modal-scrim: oklch(0.248 0.006 249);
+
+  // Referenced by name before they existed: TimeSlider.css asked for --space-sm, --space-md and
+  // --radius-sm, so its hard-coded fallbacks were what actually rendered, in both themes.
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 20px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-pill: 999px;
 
   /* Muted panel text. The panel used a hard-coded #666, which measures 1.91:1 on the dark
      surface; both of these clear 5:1 against their own theme. */
@@ -92,7 +103,7 @@ $theme-colors: (
 
   /* extras used in components */
   --panel-background: oklch(0.985 0.006 249);
-  --panel-border-color: oklch(0.669 0.008 249);
+  --panel-border-color: oklch(0.645 0.008 249);   // 3.15:1 on --panel-background, 3.13:1 on --map-panel-bg
   --muted-text: #212121;
 
   --offcanvas-bg: oklch(0.985 0.006 249);
@@ -110,13 +121,13 @@ $theme-colors: (
   --select-placeholder-color: #666666;
   --select-menu-bg: oklch(0.985 0.006 249);
   --select-option-hover-bg: rgba(38,132,255,0.1);
-  --select-option-selected-bg: #2684ff;
+  --select-option-selected-bg: var(--nav-pill-active-bg);   // was #2684ff, 3.44:1 under white
 
   --modal-bg: oklch(0.985 0.006 249);
   --modal-text-color: #111827;
   --modal-border-color: #e5e7eb;
 
-  --link-color: #0b74de;
+  --link-color: #0a6ccf;                              // 4.94:1 on the app background; #0b74de was 4.39:1
   --accent-text: #5f6368;
   --hover-text: #{$secondary};
 
@@ -201,8 +212,7 @@ $theme-colors: (
     --button-primary-text-hover: oklch(0.985 0.006 249);
     --button-primary-text: #c4fff8;
     
-    // --accent-text: #c4fff8;
-    --accent-text: #cdcdcd;
+      --accent-text: #cdcdcd;
 
     --panel-background: #{$secondary};
     --panel-border-color: oklch(0.619 0.008 249);
@@ -228,14 +238,14 @@ $theme-colors: (
     --select-placeholder-color: #b0bec5;
     --select-menu-bg: #2c3e50;
     --select-option-hover-bg: #34495e;
-    --select-option-selected-bg: #1abc9c;
+    --select-option-selected-bg: var(--nav-pill-active-bg); // was #1abc9c, 2.30:1 under white
 
     /* navbar buttons */
     --nav-button-text-color: #f9fafb;
     --nav-button-hover-bg: rgba(255, 255, 255, 0.08);
 
     /* error overlay / box for dark mode */
-    --error-overlay-bg: oklch(0.160 0.006 249);         // or keep #ffffff if you really want a bright whiteout
+    --error-overlay-bg: oklch(0.160 0.006 249);
     --error-box-bg: #111827;
     --error-box-text-color: #f9fafb;
 
@@ -279,4 +289,14 @@ body {
   width: 3em;
   height: 1.5em;
   margin-right: 10px;
+}
+
+/* Bootstrap 5.1 compiles a pure #000 backdrop. Tinted like every other neutral, and a little
+   lighter, so the map stays legible behind a dialog that is only ever informational. */
+.modal-backdrop {
+  background-color: var(--modal-scrim);
+}
+
+.modal-backdrop.show {
+  opacity: 0.45;
 }

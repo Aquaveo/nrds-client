@@ -1,3 +1,13 @@
+/**
+ * The child directory names directly under a prefix, and the full prefixes they came from.
+ *
+ * Empty names are dropped. S3 answers some prefixes with a doubled slash, for instance
+ * "outputs/routing_only/v2.2_hydrofabric/ngen.20251205//", which is an object filed under a
+ * directory with no name. That became an option labelled "" which sorted ahead of the real
+ * ones and was selected by default, so the Forecast control rendered blank, and every URL
+ * built from it carried the doubled slash down to an empty output-file listing and a panel
+ * reading "No Outputs Available".
+ */
 export async function listPublicS3Directories(prefix = "v2.2/", { signal } = {}) {
   const bucket = "ciroh-community-ngen-datastream";
 
@@ -28,12 +38,14 @@ export async function listPublicS3Directories(prefix = "v2.2/", { signal } = {})
     .map((node) => node.getElementsByTagName("Prefix")[0]?.textContent)
     .filter(Boolean);
 
-  // If you only want the "child" folder names (e.g. just "ngen.20251121"):
-  const childNames = fullPrefixes.map((p) =>
-    p
-      .slice(normalizedPrefix.length) // remove base prefix
-      .replace(/\/$/, "")            // trim trailing slash
-  );
+  // Empty names are dropped; see the note above.
+  const childNames = fullPrefixes
+    .map((p) =>
+      p
+        .slice(normalizedPrefix.length) // remove base prefix
+        .replace(/\/$/, "")            // trim trailing slash
+    )
+    .filter((name) => name !== "");
 
   return { fullPrefixes, childNames };
 }
@@ -58,6 +70,8 @@ export async function listPublicS3Files(prefix = "v2.2/", { signal } = {}) {
     return contents.map(node => node.getElementsByTagName("Key")[0].textContent);
 }
 
+const byValue = (a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0);
+
 export async function getOptionsFromURL(url, { signal } = {}) {
   try{
     if (url.split('/').includes('troute')){
@@ -65,13 +79,12 @@ export async function getOptionsFromURL(url, { signal } = {}) {
       const ncFiles = files.filter(f => f.endsWith('.nc') || f.endsWith('.parquet'));
       // const ncFilesParsed = ncFiles.map(f => `s3://ciroh-community-ngen-datastream/${f}`);
       const options = ncFiles.map((d) => ({ value: d.split('/').pop(), label: d.split('/').pop() }));
-      const sortedOptions = Array.from(options).sort().reverse();
-      return sortedOptions;
+      // byValue, because Array.sort() on objects compares "[object Object]" and orders nothing.
+      return options.sort(byValue).reverse();
     }
     const { childNames } = await listPublicS3Directories(url, { signal });
     const options = childNames.map((d) => ({ value: d, label: d }));
-    const sortedOptions = Array.from(options).sort();
-    return sortedOptions;
+    return options.sort(byValue);
   }catch(error){
     return [];
   }

@@ -9,42 +9,12 @@ const CACHE_DIR = "nrds-cache";
 let cacheDirPromise = null;
 
 /**
- * How many cached data files to keep, and which never to drop.
+ * Files the app manages for itself: never evicted, and not offered as something to clear.
  *
- * The cache key is model x date x forecast x cycle x vpu x file, so browsing accumulates
- * without limit: nothing evicted before this. Measured sizes are about 7 MB a parquet, so ten
- * of them is roughly 70 MB against a 7.6 GB origin quota -- bounded rather than tight. The id
- * index is exempt: it is 103 MB, the search depends on it, and refetching it is the slowest
- * thing the app does.
+ * The id index is the only one. The search depends on it, it is 103 MB, and refetching it is
+ * the slowest thing the app does, so it outlives the data file it sits alongside.
  */
-const MAX_CACHED_FILES = 10;
-
-// Files the app manages for itself: never evicted, and not listed as something to delete. The
-// id index is one -- the search depends on it, and removing it only breaks search until reload.
 const INTERNAL_FILES = new Set(["index_data_table.parquet"]);
-const RECENCY_STORAGE_KEY = "nrds-cache-recency";
-
-const readRecency = () => {
-  try {
-    const raw = JSON.parse(window.localStorage?.getItem(RECENCY_STORAGE_KEY) ?? "[]");
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeRecency = (keys) => {
-  try {
-    window.localStorage?.setItem(RECENCY_STORAGE_KEY, JSON.stringify(keys));
-  } catch {
-    // Storage disabled or full: eviction falls back to treating everything as equally old.
-  }
-};
-
-/** Record that a cached file was just written or read, so it evicts last. */
-export function noteCacheUse(key) {
-  writeRecency([...readRecency().filter((k) => k !== key), key]);
-}
 
 async function dropCachedTable(key) {
   try {
@@ -59,32 +29,37 @@ async function dropCachedTable(key) {
   }
 }
 
-/** Evict least-recently-used data files until the cache is back within its cap. */
-export async function pruneCache() {
+/**
+ * Keep one data file, the one named, and drop every other.
+ *
+ * One at a time rather than a capped set. The previous cap of ten needed a recency list in
+ * localStorage to decide what to drop, and that list was the weak part: with storage disabled
+ * every file looked equally old, so the choice fell back to directory order and could have
+ * evicted the file that had just been written. Naming what to keep removes both the ranking
+ * and that failure mode, and a data file is around 7 MB against a 7.6 GB origin quota, so the
+ * cap was never what bounded disk use.
+ *
+ * The duckdb table goes with the file. Leaving it behind would keep the whole dataset
+ * materialized in the worker with nothing on disk to justify it.
+ */
+export async function pruneCache(keep) {
   const dir = await getCacheDir();
   if (!dir) return [];
 
-  const present = [];
+  const doomed = [];
   for await (const handle of dir.values()) {
     if (handle.kind !== "file") continue;
     const id = decodeURIComponent(handle.name);
-    if (isArrowFile(id) || isParquetFile(id)) present.push(id);
+    if (!isArrowFile(id) && !isParquetFile(id)) continue;
+    if (id === keep || INTERNAL_FILES.has(id)) continue;
+    doomed.push(id);
   }
-
-  const evictable = present.filter((id) => !INTERNAL_FILES.has(id));
-  if (evictable.length <= MAX_CACHED_FILES) return [];
-
-  // A file with no recorded use sorts oldest, which is what -1 gives us here.
-  const recency = readRecency();
-  const byAge = [...evictable].sort((a, b) => recency.indexOf(a) - recency.indexOf(b));
-  const doomed = byAge.slice(0, evictable.length - MAX_CACHED_FILES);
 
   const evicted = [];
   for (const id of doomed) {
     await dropCachedTable(id);
     if (await deleteFileFromCache(id)) evicted.push(id);
   }
-  writeRecency(readRecency().filter((k) => !evicted.includes(k)));
   return evicted;
 }
 
@@ -201,8 +176,7 @@ export async function saveDataToCache(key, url) {
     await cacheParquetToOPFS(url, writable);
   }
   const file = await fileHandle.getFile();
-  noteCacheUse(key);
-  await pruneCache();
+  await pruneCache(key);
   return formatBytes(file.size);
 }
 function ascii4(u8) {
@@ -282,8 +256,6 @@ async function createTableFromOPFSArrow({ conn, key }) {
 
 export async function createTableFromOPFS({ conn, key, safeName }) {
   const tableName = tableNameForKey(key);
-  // Reading counts as use, so a file the user keeps coming back to is not the one evicted.
-  noteCacheUse(key);
 
   if (await doesTableExist(conn, tableName)) {
     console.debug(`Table "${tableName}" already exists, skipping.`);
@@ -399,6 +371,14 @@ export async function deleteFileFromCache(key) {
   }
 }
 
+/**
+ * Remove the cached data files, keeping the ones the app manages for itself.
+ *
+ * The id index stays. It was being deleted here while eviction and the cached-files listing
+ * both exempt it, so clearing what the interface described as a 7 MB data file also threw away
+ * a 103 MB index and left the search dead until the page was reloaded, since the index is only
+ * built on mount. Exempting it here makes the three agree.
+ */
 export async function clearCache() {
   const dir = await getCacheDir();
   if (!dir) return 0;
@@ -412,7 +392,10 @@ export async function clearCache() {
   }
 
   const names = [];
-  for await (const handle of dir.values()) names.push(handle.name);
+  for await (const handle of dir.values()) {
+    if (INTERNAL_FILES.has(decodeURIComponent(handle.name))) continue;
+    names.push(handle.name);
+  }
 
   let removed = 0;
   for (const name of names) {

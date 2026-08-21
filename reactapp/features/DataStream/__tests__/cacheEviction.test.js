@@ -1,174 +1,143 @@
 /**
- * Nothing ever evicted from the OPFS cache. The key is model x date x forecast x cycle x vpu x
- * file, so browsing accumulated parquets without limit across sessions. Measured sizes are about
- * 7 MB each against a 7.6 GB origin quota, so this is a cap for tidiness rather than a crisis --
- * but an unbounded cache with no eviction is still a leak.
+ * The cache keeps one data file. Loading a vpu drops whatever was there before, so browsing
+ * cannot accumulate, and the id index survives because the search depends on it.
+ *
+ * The cap used to be ten, ranked by a recency list in localStorage. These cover what replaced
+ * that: naming the file to keep, rather than ranking the ones to drop. The ranking's failure
+ * mode was the reason to remove it, and the last test here is that failure mode.
  */
-jest.mock('features/Tethys/services/api/app', () => ({ getArrowPerVpu: jest.fn() }));
-jest.mock('apache-arrow', () => ({ tableFromIPC: jest.fn() }));
-jest.mock('features/DataStream/lib/s3Utils', () => ({ getNCFiles: jest.fn() }));
+const INDEX = 'index_data_table.parquet';
+
+let files;
+let dropped;
+
 jest.mock('@duckdb/duckdb-wasm', () => ({ DuckDBDataProtocol: { BROWSER_FSACCESS: 3 } }));
 jest.mock('features/DataStream/lib/duckdbClient', () => ({
-  getDuckDB: jest.fn(),
   getConnection: jest.fn(),
+  getDuckDB: jest.fn(),
 }));
 
-const { getDuckDB, getConnection } = require('features/DataStream/lib/duckdbClient');
+const { getConnection, getDuckDB } = require('features/DataStream/lib/duckdbClient');
 
-// jsdom has no OPFS, so this is the smallest directory handle the cache actually uses.
-const fakeOpfs = (names) => {
-  const files = new Map(names.map((n) => [encodeURIComponent(n), 1024]));
-  const dir = {
-    values: async function* () {
-      for (const name of [...files.keys()]) {
-        yield { kind: 'file', name, getFile: async () => ({ name, size: files.get(name) }) };
-      }
-    },
-    getFileHandle: async (name) => {
-      if (!files.has(name)) throw Object.assign(new Error('nf'), { name: 'NotFoundError' });
-      return { getFile: async () => ({ name, size: files.get(name) }) };
-    },
-    removeEntry: async (name) => {
-      if (!files.has(name)) throw Object.assign(new Error('nf'), { name: 'NotFoundError' });
-      files.delete(name);
-    },
+// A stand-in OPFS directory. Iteration order is the insertion order, which is what makes the
+// no-ranking-available case testable at all.
+const fakeDir = () => ({
+  values: async function* () {
+    for (const name of Object.keys(files)) {
+      yield { kind: 'file', name: encodeURIComponent(name) };
+    }
+  },
+  removeEntry: async (safeName) => {
+    const id = decodeURIComponent(safeName);
+    if (!(id in files)) throw new Error('NotFoundError');
+    delete files[id];
+  },
+  getFileHandle: async () => { throw new Error('NotFoundError'); },
+});
+
+beforeEach(() => {
+  files = {};
+  dropped = [];
+  const dir = fakeDir();
+  // navigator.storage.getDirectory() hands back the origin root; the cache is a directory in it.
+  global.navigator.storage = {
+    getDirectory: async () => ({ getDirectoryHandle: async () => dir }),
   };
-  navigator.storage = { getDirectory: async () => ({ getDirectoryHandle: async () => dir }) };
-  return files;
-};
-
-const load = () => {
-  let mod;
-  jest.isolateModules(() => {
-    // eslint-disable-next-line global-require
-    mod = require('features/DataStream/lib/opfsCache');
+  getDuckDB.mockResolvedValue({ dropFiles: jest.fn() });
+  getConnection.mockResolvedValue({
+    query: jest.fn(async (sql) => {
+      const m = sql.match(/DROP TABLE IF EXISTS "([^"]+)"/);
+      if (m) dropped.push(m[1]);
+      return { toArray: () => [] };
+    }),
+    close: jest.fn(),
   });
+});
+
+const loadCache = () => {
+  let mod;
+  jest.isolateModules(() => { mod = require('features/DataStream/lib/opfsCache'); });
   return mod;
 };
 
-const vpuKeys = (n) => Array.from({ length: n }, (_, i) => `model_date_VPU_${i}_troute.parquet`);
+describe('keeping one data file', () => {
+  test('drops the previous file when a new one arrives', async () => {
+    files = { 'vpu_01.parquet': 1, 'vpu_16.parquet': 1 };
 
-beforeEach(() => {
-  window.localStorage.clear();
-  getDuckDB.mockResolvedValue({ dropFile: jest.fn(), dropFiles: jest.fn() });
-  getConnection.mockResolvedValue({ query: jest.fn(), close: jest.fn() });
+    const evicted = await loadCache().pruneCache('vpu_16.parquet');
+
+    expect(evicted).toEqual(['vpu_01.parquet']);
+    expect(Object.keys(files)).toEqual(['vpu_16.parquet']);
+  });
+
+  test('drops the duckdb table with the file, under the stripped name', async () => {
+    files = { 'vpu_01.parquet': 1, 'vpu_16.parquet': 1 };
+
+    await loadCache().pruneCache('vpu_16.parquet');
+
+    // Left behind, the table keeps the whole dataset materialized in the worker.
+    expect(dropped).toEqual(['vpu_01']);
+  });
+
+  test('never drops the id index, whatever is being kept', async () => {
+    files = { [INDEX]: 1, 'vpu_01.parquet': 1 };
+
+    await loadCache().pruneCache('vpu_01.parquet');
+
+    expect(Object.keys(files)).toContain(INDEX);
+  });
+
+  test('drops several at once, for a cache left over from the old cap', async () => {
+    files = {
+      [INDEX]: 1,
+      'vpu_01.parquet': 1,
+      'vpu_02.parquet': 1,
+      'vpu_03.parquet': 1,
+      'vpu_16.parquet': 1,
+    };
+
+    const evicted = await loadCache().pruneCache('vpu_16.parquet');
+
+    expect(evicted.sort()).toEqual(['vpu_01.parquet', 'vpu_02.parquet', 'vpu_03.parquet']);
+    expect(Object.keys(files).sort()).toEqual([INDEX, 'vpu_16.parquet']);
+  });
+
+  test('keeps the file it was told to keep even when it is listed first', async () => {
+    // The ranking this replaced read recency from localStorage. With storage unavailable every
+    // file scored equally, the sort fell back to directory order, and the file just written
+    // could be the one deleted. Naming what to keep cannot get this wrong.
+    delete global.window.localStorage;
+    files = { 'vpu_16.parquet': 1, 'vpu_01.parquet': 1 };
+
+    await loadCache().pruneCache('vpu_16.parquet');
+
+    expect(Object.keys(files)).toEqual(['vpu_16.parquet']);
+  });
+
+  test('evicts nothing when the kept file is the only one there', async () => {
+    files = { [INDEX]: 1, 'vpu_16.parquet': 1 };
+
+    expect(await loadCache().pruneCache('vpu_16.parquet')).toEqual([]);
+  });
 });
 
-describe('getFilesFromCache', () => {
-  it('does not offer the id index as something to delete', async () => {
-    fakeOpfs(['index_data_table.parquet', 'model_date_VPU_1_troute.parquet']);
-    const { getFilesFromCache } = load();
+describe('clearing the cache', () => {
+  test('keeps the id index, so the search still works afterwards', async () => {
+    files = { [INDEX]: 1, 'vpu_16.parquet': 1 };
 
-    const listed = await getFilesFromCache();
+    const removed = await loadCache().clearCache();
 
-    // It is the app's own file: exempt from eviction, and deleting it only breaks search.
-    expect(listed.map((f) => f.id)).toEqual(['model_date_VPU_1_troute.parquet']);
+    // The index is 103 MB and only built on mount, so removing it here killed the search
+    // until the page was reloaded while the interface talked about a 7 MB data file.
+    expect(removed).toBe(1);
+    expect(Object.keys(files)).toEqual([INDEX]);
   });
 
-  it('still lists the vpu parquets the user chose to load', async () => {
-    fakeOpfs(vpuKeys(3));
-    const { getFilesFromCache } = load();
+  test('removes every data file it finds', async () => {
+    files = { [INDEX]: 1, 'vpu_01.parquet': 1, 'vpu_16.parquet': 1 };
 
-    expect(await getFilesFromCache()).toHaveLength(3);
-  });
-});
+    await loadCache().clearCache();
 
-describe('pruneCache', () => {
-  it('leaves the cache alone while it is within the cap', async () => {
-    const files = fakeOpfs(vpuKeys(10));
-    const { pruneCache } = load();
-
-    expect(await pruneCache()).toEqual([]);
-    expect(files.size).toBe(10);
-  });
-
-  it('evicts down to the cap once it is exceeded', async () => {
-    const files = fakeOpfs(vpuKeys(13));
-    const { pruneCache } = load();
-
-    const evicted = await pruneCache();
-
-    expect(evicted).toHaveLength(3);
-    expect(files.size).toBe(10);
-  });
-
-  it('evicts the least recently used, not whatever the directory lists first', async () => {
-    const keys = vpuKeys(12);
-    fakeOpfs(keys);
-    const { pruneCache, noteCacheUse } = load();
-
-    // The last two are never used; directory order would wrongly take the first two.
-    for (const key of keys.slice(0, 10)) noteCacheUse(key);
-
-    expect(await pruneCache()).toEqual([keys[10], keys[11]]);
-  });
-
-  it('evicts in reverse of use when use is the reverse of listing order', async () => {
-    const keys = vpuKeys(12);
-    fakeOpfs(keys);
-    const { pruneCache, noteCacheUse } = load();
-
-    // Used newest-first, so the earliest-listed files are the least recently used.
-    for (const key of [...keys].reverse()) noteCacheUse(key);
-
-    expect(await pruneCache()).toEqual([keys[11], keys[10]]);
-  });
-
-  it('never evicts the id index, however old it is', async () => {
-    const keys = ['index_data_table.parquet', ...vpuKeys(12)];
-    const files = fakeOpfs(keys);
-    const { pruneCache, noteCacheUse } = load();
-    for (const key of keys.slice(1)) noteCacheUse(key);
-
-    const evicted = await pruneCache();
-
-    // The index is exempt, so the cap applies to the other twelve alone.
-    expect(evicted).not.toContain('index_data_table.parquet');
-    expect(files.has(encodeURIComponent('index_data_table.parquet'))).toBe(true);
-    expect(evicted).toHaveLength(2);
-  });
-
-  it('drops each evicted file from duckdb before removing it', async () => {
-    fakeOpfs(vpuKeys(11));
-    const dropFile = jest.fn();
-    getDuckDB.mockResolvedValue({ dropFile, dropFiles: jest.fn() });
-    const { pruneCache } = load();
-
-    await pruneCache();
-
-    // Without this the browser refuses the removal, which is the delete bug all over again.
-    expect(dropFile).toHaveBeenCalledTimes(1);
-    expect(dropFile.mock.calls[0][0]).toMatch(/^nrds-cache\//);
-  });
-
-  it('drops the table for an evicted file too', async () => {
-    fakeOpfs(vpuKeys(11));
-    const query = jest.fn();
-    getConnection.mockResolvedValue({ query, close: jest.fn() });
-    const { pruneCache } = load();
-
-    await pruneCache();
-
-    // Named without the extension, as the table was created.
-    expect(query).toHaveBeenCalledWith(expect.stringMatching(/DROP TABLE IF EXISTS "model_date_VPU_\d+_troute"/));
-  });
-
-  it('forgets evicted keys so the record does not grow forever', async () => {
-    const keys = vpuKeys(12);
-    fakeOpfs(keys);
-    const { pruneCache, noteCacheUse } = load();
-    for (const key of keys) noteCacheUse(key);
-
-    await pruneCache();
-
-    const remembered = JSON.parse(window.localStorage.getItem('nrds-cache-recency'));
-    expect(remembered).toHaveLength(10);
-  });
-
-  it('does nothing where OPFS is unavailable', async () => {
-    delete navigator.storage;
-    const { pruneCache } = load();
-
-    expect(await pruneCache()).toEqual([]);
+    expect(Object.keys(files)).toEqual([INDEX]);
   });
 });

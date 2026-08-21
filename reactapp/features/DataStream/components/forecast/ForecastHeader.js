@@ -1,12 +1,13 @@
 
 import React,{ useState } from 'react';
-import { MdLocationPin, MdClose, MdInfoOutline } from "react-icons/md";
-import { Row, IconLabel, SButton } from '../styles/Styles';
-import { DataInfoModel } from '../Modals';
+import { MdLocationPin, MdClose } from "react-icons/md";
+import { Row, IconLabel, SButton, InfoPanel } from '../styles/Styles';
+import { InfoToggle } from '../InfoDisclosure';
+import { DataInfoContent } from '../InfoContent';
 
 
 export const ForecastHeader = ({ title, onClick }) =>{
-  const [ modalDataInfoShow, setModalDataInfoShow ] = useState(false);
+  const [ dataInfoOpen, setDataInfoOpen ] = useState(false);
   return (
     <div>
       <Row>
@@ -14,22 +15,21 @@ export const ForecastHeader = ({ title, onClick }) =>{
           <MdLocationPin size={18} style={{ color: 'var(--nav-pill-active-bg)' }} />
           {title}
         </IconLabel>
-        <SButton
-          bsPrefix="btn2"
-          onClick={() => setModalDataInfoShow(true)}
-          aria-label="About this data"
-          title="About this data"
-        >
-          <MdInfoOutline size={15} />
-        </SButton>
+        <InfoToggle
+          open={dataInfoOpen}
+          onToggle={setDataInfoOpen}
+          controls="data-info"
+          label="notes on this data"
+        />
         <SButton onClick={onClick} aria-label="Clear selection" title="Clear selection">
           <MdClose />
         </SButton>
       </Row>
-      <DataInfoModel
-        show={modalDataInfoShow}
-        onHide={() => setModalDataInfoShow(false)}
-      />
+      {dataInfoOpen && (
+        <InfoPanel id="data-info">
+          <DataInfoContent />
+        </InfoPanel>
+      )}
     </div>
 )};
 

@@ -1,8 +1,8 @@
 import React from 'react';
-import { Spinner } from 'react-bootstrap';
 import { useShallow } from 'zustand/react/shallow';
 
 import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import Spinner from 'features/Tethys/components/loader/Spinner';
 import { StatusStrip } from '../styles/Styles';
 
 /**
@@ -29,7 +29,7 @@ export const LoadStatus = React.memo(function LoadStatus() {
 
   return (
     <StatusStrip role="status" aria-live="polite" $failed={failed}>
-      {loading && <Spinner as="span" size="sm" animation="border" aria-hidden="true" />}
+      {loading && <Spinner size={14} />}
       {loadingText && <span>{loadingText}</span>}
     </StatusStrip>
   );

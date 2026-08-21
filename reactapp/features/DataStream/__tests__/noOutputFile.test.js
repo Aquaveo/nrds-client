@@ -1,0 +1,171 @@
+/**
+ * A selection with no output file left the previous one on screen.
+ *
+ * Changing model, date, forecast, cycle or ensemble refetches the output-file listing. When
+ * that listing came back empty the controls updated but nothing else did, so the flowpath
+ * animation and the chart from the last output file stayed up, presented as though they
+ * belonged to the selection now showing. Pressing Update could not correct it either, since
+ * there was nothing to load, so the stale view was permanent.
+ */
+import { act, render, screen } from '@testing-library/react';
+
+import useTimeSeriesStore from 'features/DataStream/store/Timeseries';
+import useDataStreamStore from 'features/DataStream/store/Datastream';
+import useS3DataStreamBucketStore from 'features/DataStream/store/s3Store';
+import { useFeatureStore, useVPUStore } from 'features/DataStream/store/Layers';
+
+jest.mock('features/DataStream/actions/loadVpu', () => ({ loadVpu: jest.fn() }));
+jest.mock('features/DataStream/lib/opfsCache', () => ({ getCacheKey: () => 'vpu-01' }));
+jest.mock('features/DataStream/lib/duckdbClient', () => ({ terminateDatabase: jest.fn() }));
+jest.mock('features/DataStream/lib/s3Utils', () => ({
+  getOptionsFromURL: jest.fn(),
+  makePrefix: () => 'prefix/',
+}));
+
+// A stand-in for react-select that exposes each row's change handler as a button.
+/* eslint-disable react/prop-types -- a one-prop stand-in, not a component. */
+jest.mock('features/DataStream/components/SelectComponent', () => function SelectComponent({ inputId, onChangeHandler }) {
+  return <button onClick={() => onChangeHandler({ value: 'changed', label: 'changed' })}>{`pick ${inputId}`}</button>;
+});
+
+const { getOptionsFromURL } = require('features/DataStream/lib/s3Utils');
+const { DataMenuControls } = require('features/DataStream/components/forecast/dataMenu');
+
+const initial = {
+  ts: useTimeSeriesStore.getState(),
+  ds: useDataStreamStore.getState(),
+  fs: useFeatureStore.getState(),
+  vpu: useVPUStore.getState(),
+  s3: useS3DataStreamBucketStore.getState(),
+};
+
+// What the app looks like with a vpu loaded and its animation running.
+const withLoadedAnimation = () => {
+  useFeatureStore.setState({ selected_feature: { _id: 'cat-2884494' } });
+  useDataStreamStore.setState({
+    vpu: 'VPU_16', model: 'cfe_nom', date: 'ngen.20260819',
+    forecast: 'short_range', cycle: '00', outputFile: 'troute_output_1.parquet',
+  });
+  useS3DataStreamBucketStore.setState({
+    dates: [{ value: 'ngen.20260819', label: 'ngen.20260819' }],
+    outputFiles: [{ value: 'troute_output_1.parquet', label: 'troute_output_1.parquet' }],
+  });
+  useVPUStore.getState().setAnimationIndex(['2884494'], ['t0', 't1']);
+  useVPUStore.getState().setVarData('flow', Float32Array.from([1, 2]));
+  useTimeSeriesStore.setState({ feature_id: 'cat-2884494', series: [{ x: 1, y: 2 }] });
+};
+
+const hasAnimation = () => {
+  const s = useVPUStore.getState();
+  return Object.keys(s.valuesByVar).length > 0 && s.times.length > 0;
+};
+
+beforeEach(() => {
+  useTimeSeriesStore.setState(initial.ts, true);
+  useDataStreamStore.setState(initial.ds, true);
+  useFeatureStore.setState(initial.fs, true);
+  useVPUStore.setState(initial.vpu, true);
+  useS3DataStreamBucketStore.setState(initial.s3, true);
+});
+
+const changeDate = async () => {
+  render(<DataMenuControls />);
+  await act(async () => { screen.getByRole('button', { name: /pick select-date/i }).click(); });
+};
+
+describe('changing to a selection with no output file', () => {
+  test('stops animating the previous output file', async () => {
+    withLoadedAnimation();
+    expect(hasAnimation()).toBe(true);
+    getOptionsFromURL.mockResolvedValue([]);
+
+    await changeDate();
+
+    expect(hasAnimation()).toBe(false);
+  });
+
+  test('clears the chart from the previous output file', async () => {
+    withLoadedAnimation();
+    getOptionsFromURL.mockResolvedValue([]);
+
+    await changeDate();
+
+    expect(useTimeSeriesStore.getState().series).toHaveLength(0);
+  });
+
+  test('says so, as a failure rather than as progress', async () => {
+    withLoadedAnimation();
+    getOptionsFromURL.mockResolvedValue([]);
+
+    await changeDate();
+
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/No output file for this selection/);
+    expect(useTimeSeriesStore.getState().last_error).toMatchObject({ kind: 'no-output-file' });
+  });
+
+  test('leaves the selection alone, so the panel stays open mid-interaction', async () => {
+    withLoadedAnimation();
+    getOptionsFromURL.mockResolvedValue([]);
+
+    await changeDate();
+
+    // The panel is open because a feature is selected; clearing that would close it.
+    expect(useTimeSeriesStore.getState().feature_id).toBe('cat-2884494');
+  });
+
+  test('keeps the animation when the listing is not empty', async () => {
+    withLoadedAnimation();
+    getOptionsFromURL.mockResolvedValue([{ value: 'troute_output_2.parquet', label: 'b' }]);
+
+    await changeDate();
+
+    expect(hasAnimation()).toBe(true);
+    expect(useTimeSeriesStore.getState().last_error).toBeNull();
+  });
+});
+
+describe('how obvious it is', () => {
+  test('states the reason as an alert, not a caption', () => {
+    useS3DataStreamBucketStore.setState({ outputFiles: [] });
+    render(<DataMenuControls />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/No output file for this selection/);
+  });
+
+  test('disables Update, because pressing it could only fail', () => {
+    useDataStreamStore.setState({ outputFile: '' });
+    useS3DataStreamBucketStore.setState({ outputFiles: [] });
+    render(<DataMenuControls />);
+
+    expect(screen.getByRole('button', { name: /update/i })).toBeDisabled();
+  });
+
+  test('enables Update once there is something to read', () => {
+    useDataStreamStore.setState({ outputFile: 'troute_output_1.parquet' });
+    useS3DataStreamBucketStore.setState({
+      outputFiles: [{ value: 'troute_output_1.parquet', label: 'a' }],
+    });
+    render(<DataMenuControls />);
+
+    expect(screen.getByRole('button', { name: /update/i })).toBeEnabled();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('what an empty chart says', () => {
+  const TimeSeriesCard = require('features/DataStream/components/forecast/TimeseriesCard').default;
+
+  test('asks for a selection only when there is none', () => {
+    render(<TimeSeriesCard />);
+    expect(screen.getByText(/select a catchment/i)).toBeInTheDocument();
+  });
+
+  test('names the selected catchment instead of asking for one already chosen', () => {
+    // Being told to select a catchment while one is selected reads as the app losing track.
+    useTimeSeriesStore.setState({ feature_id: 'cat-2884494', series: [] });
+    render(<TimeSeriesCard />);
+
+    expect(screen.queryByText(/select a catchment/i)).toBeNull();
+    expect(screen.getByText(/No data to chart for cat-2884494/i)).toBeInTheDocument();
+  });
+});

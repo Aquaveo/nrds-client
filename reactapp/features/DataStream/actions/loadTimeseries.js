@@ -1,4 +1,4 @@
-import { getTimeseries } from 'features/DataStream/lib/queryData';
+import { checkForTable, getTimeseries } from 'features/DataStream/lib/queryData';
 import { makeTitle } from 'features/DataStream/lib/utils';
 import { createSequence } from 'features/DataStream/lib/sequence';
 import useDataStreamStore from 'features/DataStream/store/Datastream';
@@ -26,6 +26,14 @@ const series = createSequence();
  *
  * Kept out of the store so that importing the store does not drag in duckdb and arrow: every
  * component reading a timeseries value would otherwise pull the whole query layer with it.
+ *
+ * A missing table is rebuilt rather than queried. Deleting a cached file drops its duckdb
+ * table, and nothing else in the app knew that had happened, so a click came straight here and
+ * queried a table that was gone. That surfaced as a raw "Table with name ... does not exist"
+ * catalog error, after which nothing loaded again. The check sits ahead of the already-charted
+ * short circuit because re-clicking the feature that was on screen when the cache was deleted
+ * matches ``last_loaded_key``, so the gesture most likely to follow a delete would otherwise
+ * return early and never recover. It costs one information_schema lookup, about a millisecond.
  */
 export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}) {
   const store = useTimeSeriesStore;
@@ -41,6 +49,16 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
   const { cache_key: cacheKey, forecast, variables } = useDataStreamStore.getState();
   const requestedVariable = variable || state.variable || variables[0];
   const requestKey = `${cacheKey}|${requestedVariable}|${targetId}`;
+
+  // Ahead of the already-charted check on purpose; see the note above on a dropped table.
+  if (vpuGeneration === undefined && !(await checkForTable(cacheKey))) {
+    store.setState({ last_loaded_key: null });
+    // Imported here so this module does not pull duckdb in through the cache store.
+    const { loadVpu } = await import('features/DataStream/actions/loadVpu');
+    await loadVpu();
+    return;
+  }
+
   // This exact series is already charted, so there is nothing to fetch.
   if (requestKey === state.last_loaded_key) return;
 
@@ -52,7 +70,9 @@ export async function loadTimeseries({ featureId, variable, vpuGeneration } = {}
   try {
     store.getState().reset_series();
     beginLoading();
-    store.setState({ loadingText: 'Loading feature properties...', last_error: null });
+    // Names what is loading. "Loading feature properties..." was the vpu loader's message,
+    // reused here, so a catchment click reported something it was not doing.
+    store.setState({ loadingText: `Loading ${targetId}`, last_error: null });
 
     const rows = await getTimeseries(id, cacheKey, requestedVariable);
     if (superseded()) return;

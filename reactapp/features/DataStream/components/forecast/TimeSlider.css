@@ -1,23 +1,30 @@
-/* TimeSlider.css */
+/* TimeSlider.css
+ *
+ * Brought into the token system. This file predated it and was the source of most of what an
+ * audit found: five tokens referenced but never defined, so their hard-coded fallbacks were the
+ * live values in both themes (a dark navy border and a cyan glow rendering in the light theme);
+ * a hover pair at 2.31:1; transport buttons at 34px; a font that was never loaded; and bare
+ * element selectors that reached every range input in the app rather than the two here.
+ */
 
 .panel {
- color: var(--map-panel-text);
+  color: var(--map-panel-text);
 }
 
 .panel-title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
   display: flex;
   align-items: center;
-  gap: var(--space-sm, 8px);
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
 .panel-title svg {
-  width: var(--space-md, 16px);
-  height: var(--space-md, 16px);
+  width: var(--space-md);
+  height: var(--space-md);
 }
 
 /* Time slider block */
@@ -27,96 +34,117 @@
 
 .time-display {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-sm, 8px);
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
 }
 
 .time-label {
-  font-size: 12px;
-  color: var(--accent-text,#009989);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--panel-text-muted);
 }
 
 .time-value {
-  /* font-family: "IBM Plex Mono", monospace; */
-  font-size: 14px;
-  color: var(--accent-text, #00d4ff);
+  /* The readout role: tabular alignment is the only reason it is monospace. IBM Plex Mono was
+     named here and never loaded by anything, so it silently fell back to the generic family. */
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: var(--text-sm);
+  color: var(--map-panel-text);
 }
 
-/* Range slider styling */
-input[type="range"] {
+/* Scoped to this panel. These were bare element selectors, so they styled every range input in
+   the app, including any added later by something unrelated. */
+.time-control input[type='range'],
+.speed-control input[type='range'] {
   width: 100%;
   height: 6px;
   -webkit-appearance: none;
   appearance: none;
-  background: var(--accent-text);
-  border-radius: var(--radius-sm, 4px);
+  background: var(--panel-border-color);
+  border-radius: var(--radius-sm);
   outline: none;
 }
 
-/* Focus ring restored: the slider is keyboard-driven and had no visible focus state. */
-input[type="range"]:focus-visible {
+.time-control input[type='range']:focus-visible,
+.speed-control input[type='range']:focus-visible {
   outline: 2px solid var(--nav-pill-active-bg);
   outline-offset: 2px;
 }
 
-input[type="range"]::-webkit-slider-thumb {
+.time-control input[type='range']::-webkit-slider-thumb,
+.speed-control input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: var(--space-md, 16px);
-  height: var(--space-md, 16px);
-  background: var(--select-option-selected-bg);
+  width: var(--space-md);
+  height: var(--space-md);
+  background: var(--nav-pill-active-bg);
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 0 10px var(--dropshadow-color, rgba(0, 212, 255, 0.15));
 }
 
-/* Firefox */
-input[type="range"]::-moz-range-thumb {
-  width: var(--space-md, 16px);
-  height: var(--space-md, 16px);
-  background: var(--select-option-selected-bg);
+.time-control input[type='range']::-moz-range-thumb,
+.speed-control input[type='range']::-moz-range-thumb {
+  width: var(--space-md);
+  height: var(--space-md);
+  background: var(--nav-pill-active-bg);
   border: 0;
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 0 10px var(--dropshadow-color, rgba(0, 212, 255, 0.15));
 }
 
-input[type="range"]::-moz-range-track {
+.time-control input[type='range']::-moz-range-track,
+.speed-control input[type='range']::-moz-range-track {
   height: 6px;
-  background: var(--select-option-selected-bg, #0a0e14);
-  border-radius: var(--radius-sm, 4px);
+  background: var(--panel-border-color);
+  border-radius: var(--radius-sm);
 }
 
 /* Play controls row */
 .play-controls {
   display: flex;
-  gap: var(--space-sm, 8px);
+  gap: var(--space-sm);
   margin-top: 12px;
   justify-content: center;
 }
 
+/* The same shape as every other button in the app, rather than a set of its own. It used
+   --accent-text as a background with --primary-color on it, and on hover put --text-color over
+   --select-option-selected-bg, which measured 2.31:1 in the dark theme. */
 .play-btn {
-  /* flex: 1; */
-  padding: var(--space-sm, 8px);
-  background: var(--accent-text, #0a0e14);
-  border: 1px solid var(--border-color, #2a3a4a);
-  border-radius: var(--radius-sm, 4px);
-  color: var(--primary-color);
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-sm);
+  background: var(--button-primary-bg);
+  border: 1px solid var(--panel-border-color);
+  border-radius: var(--radius-sm);
+  color: var(--button-primary-text);
+  cursor: pointer;
 }
 
-.play-btn:hover {
-  background-color: var(--select-option-selected-bg);
-  color: var(--text-color);
+.play-btn:hover:not(:disabled) {
+  background-color: var(--button-primary-hover-bg);
+  color: var(--button-primary-text-hover);
+}
+
+.play-btn:focus-visible {
+  outline: 2px solid var(--nav-pill-active-bg);
+  outline-offset: 2px;
+}
+
+.play-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .play-btn.active {
-  background: var(--select-option-selected-bg);
-  border-color: var(--select-option-selected-bg);
-  color: var(--bg-primary, #0a0e14);
+  background: var(--nav-pill-active-bg);
+  border-color: transparent;
+  color: var(--nav-pill-active-text-color);
 }
 
 .play-btn svg {
@@ -128,14 +156,16 @@ input[type="range"]::-moz-range-track {
 .speed-control {
   display: flex;
   align-items: center;
-  gap: var(--space-sm, 8px);
+  gap: var(--space-sm);
   margin-top: 12px;
 }
 
 .speed-control label {
-  font-size: 11px;
-  color: var(--accent-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.5px;
   text-transform: uppercase;
+  color: var(--panel-text-muted);
 }
 
 .speed-control input {
@@ -143,9 +173,9 @@ input[type="range"]::-moz-range-track {
 }
 
 .speed-value {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
-  color: var(--accent-text);
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: var(--text-xs);
+  color: var(--map-panel-text);
   min-width: 40px;
   text-align: right;
 }

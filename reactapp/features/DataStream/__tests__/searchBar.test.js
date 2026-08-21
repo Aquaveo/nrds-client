@@ -13,6 +13,8 @@ import useDataStreamStore from 'features/DataStream/store/Datastream';
 import { useFeatureStore } from 'features/DataStream/store/Layers';
 
 jest.mock('features/DataStream/lib/queryData', () => ({
+  // loadTimeseries checks the table is still registered before querying it.
+  checkForTable: jest.fn(),
   loadIndexData: jest.fn(),
   getFeatureProperties: jest.fn(),
 }));
@@ -33,6 +35,7 @@ beforeEach(() => {
   useDataStreamStore.setState(initial.ds, true);
   useFeatureStore.setState(initial.fs, true);
   queryData.loadIndexData.mockResolvedValue(undefined);
+  queryData.checkForTable.mockResolvedValue(true);
   queryData.getFeatureProperties.mockResolvedValue([{ id: 'cat-1', vpuid: '01' }]);
   loadTimeseries.mockResolvedValue(undefined);
 });
@@ -108,7 +111,10 @@ describe('the search box', () => {
 
     await act(async () => { button().click(); });
 
-    expect(box()).toHaveAttribute('placeholder', expect.stringMatching(/No feature with id/i));
+    // Asserted on the store, not the placeholder: the box still holds the id that was
+    // searched for, so a placeholder is never painted and the miss was invisible.
+    expect(useTimeSeriesStore.getState().loadingText).toMatch(/No feature found with id/i);
+    expect(useTimeSeriesStore.getState().last_error).toMatchObject({ kind: 'search-miss' });
     expect(useFeatureStore.getState().selected_feature).toBe(null);
   });
 

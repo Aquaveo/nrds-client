@@ -47,6 +47,13 @@ function VariablesMenu() {
   }
   , [variables, variable]);
 
+  /**
+   * Load a variable's map values and its chart series together.
+   *
+   * allSettled rather than all: with all, a rejected flat load reported the failure while the
+   * series load was still in flight, and that load's success then wrote loadingText back to an
+   * empty string and erased the message. Waiting for both means the complaint is written last.
+   */
   const handleChangeVariable = useCallback(async (evt) => {
     const opt = evt || availableVariablesList?.[0];
     if (!opt || !feature_id) return;
@@ -59,18 +66,28 @@ function VariablesMenu() {
       const cached = useVPUStore.getState().getVarData(opt.value);
 
       // Both start together; the variable is set last so the layer never reads absent values.
-      const [flat] = await Promise.all([
+      const [flatResult] = await Promise.allSettled([
         cached ?? getVpuVariableFlat(requestCacheKey, opt.value),
         loadTimeseries({ variable: opt.value }),
       ]);
       if (!changes.isCurrent(ticket)) return;
-      if (useDataStreamStore.getState().cache_key !== requestCacheKey) return;
       // The vpu moved on, so these values describe a table that is no longer loaded.
-      setVarData(opt.value, flat);
+      if (useDataStreamStore.getState().cache_key !== requestCacheKey) return;
+
+      if (flatResult.status === 'rejected') {
+        // Say so: the chart has already changed, and silence hid the disagreement.
+        useTimeSeriesStore.setState({
+          loadingText: `Failed to load ${opt.value} for the map`,
+          last_error: { kind: 'variable', variable: opt.value },
+        });
+        console.error('Failed to change variable', flatResult.reason);
+        return;
+      }
+
+      setVarData(opt.value, flatResult.value);
       set_variable(opt.value);
     } catch (err) {
       if (!changes.isCurrent(ticket)) return;
-      // Say so: the chart may already have changed, and silence hid the disagreement.
       useTimeSeriesStore.setState({
         loadingText: `Failed to load ${opt.value} for the map`,
         last_error: { kind: 'variable', variable: opt.value },

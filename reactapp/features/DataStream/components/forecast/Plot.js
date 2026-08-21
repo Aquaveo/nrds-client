@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types';
 import React, { useCallback, useMemo, useEffect, useRef, useId } from 'react';
 import { useIsNarrowViewport } from './useIsNarrowViewport';
 import { Group } from '@visx/group';
@@ -22,7 +23,7 @@ const tooltipBg = 'var(--chart-tooltip-bg, rgba(255, 255, 255, 0.95))';
 const tooltipTextColor = 'var(--chart-tooltip-text, #111827)';
 const tooltipBorderColor = 'var(--chart-tooltip-border-color, rgba(148, 163, 184, 0.6))';
 const crosshairColor = 'var(--chart-crosshair-color, #4b5563)';
-const glyphStrokeColor = 'var(--chart-glyph-stroke-color, #ffffff)';
+const glyphStrokeColor = 'var(--chart-glyph-stroke-color, #f7fafe)';
 
 const StaticSvgLayer = React.memo(function StaticSvgLayer({
   width,
@@ -135,7 +136,7 @@ const TooltipSvgLayer = React.memo(function TooltipSvgLayer({
   );
 });
 
-const LineChart = React.memo(function LineChart({ width, height, data, layout }) {
+const LineChart = React.memo(function LineChart({ width, height, data, layout, emptyMessage }) {
   const forecast = useDataStreamStore((s) => s.forecast);
   const isPlayingRef = useRef(false);
 
@@ -396,10 +397,7 @@ const LineChart = React.memo(function LineChart({ width, height, data, layout })
   return (
     <ChartContainer style={{ width, height }}>
       {noData ? (
-        <NoData
-        >
-          Select a catchment to see its timeseries
-        </NoData>
+        <NoData>{emptyMessage || 'Select a catchment to see its timeseries'}</NoData>
       ) : (
         <>
           {/* STATIC layer (won't rerender on tooltip changes) */}
@@ -490,5 +488,19 @@ const LineChart = React.memo(function LineChart({ width, height, data, layout })
     </ChartContainer>
   );
 });
+
+LineChart.propTypes = {
+  width: PropTypes.number,
+  height: PropTypes.number,
+  data: PropTypes.arrayOf(
+    PropTypes.shape({ label: PropTypes.string, data: PropTypes.array })
+  ),
+  layout: PropTypes.shape({
+    title: PropTypes.string,
+    xaxis: PropTypes.string,
+    yaxis: PropTypes.string,
+  }),
+  emptyMessage: PropTypes.string,
+};
 
 export default LineChart;

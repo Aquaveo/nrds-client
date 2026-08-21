@@ -23,6 +23,8 @@ jest.mock('features/DataStream/components/SelectComponent', () => function Selec
   );
 });
 jest.mock('features/DataStream/lib/queryData', () => ({
+  // loadTimeseries checks the table is still registered before querying it.
+  checkForTable: jest.fn(),
   getVpuVariableFlat: jest.fn(),
   getTimeseries: jest.fn(),
 }));
@@ -41,6 +43,7 @@ beforeEach(() => {
   useDataStreamStore.setState(initial.ds, true);
   useVPUStore.setState(initial.vpu, true);
   queryData.getVpuVariableFlat.mockResolvedValue(Float32Array.from([1, 2, 3]));
+  queryData.checkForTable.mockResolvedValue(true);
   queryData.getTimeseries.mockResolvedValue([{ time: '2022-08-01T00:00:00Z', flow: 1 }]);
 
   useDataStreamStore.setState({ cache_key: 'vpu-01', variables: ['flow', 'precipitation'] });
