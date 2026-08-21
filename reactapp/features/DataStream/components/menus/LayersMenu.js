@@ -3,37 +3,42 @@ import { IoLayers, IoClose } from 'react-icons/io5';
 
 import { LayerControl } from '../map/LayersControl';
 import { LayersContainer, LayerButton } from '../styles/Styles';
+import { IoLayers } from "react-icons/io5";
 
-/**
- * The layer panel, and the control that reveals it.
- *
- * A disclosure, declared as one. It was two icon-only buttons with no accessible name at all,
- * announcing themselves as "button", and they were how the layer panel is reached. The panel
- * also took an isOpen prop it never used, and which styled-components filtered out before it
- * could reach the DOM, so it did nothing in either direction.
- */
-export const LayersMenu = () => {
+export const LayersMenu = ({ inline = false }) => {
   const [open, setIsOpen] = useState(false);
-  const toggle = useCallback(() => setIsOpen((o) => !o), []);
+  const toggle = useCallback(() => setIsOpen(o => !o), []);
+  const buttonStyle = inline
+    ? { position: 'static', top: 'auto', right: 'auto', marginTop: 0 }
+    : undefined;
 
   return (
     <Fragment>
-      <LayerButton
-        type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls="layer-options"
-        aria-label={open ? 'Hide layer options' : 'Show layer options'}
-        title={open ? 'Hide layer options' : 'Show layer options'}
-        $bgColor={open ? 'transparent' : undefined}
-      >
-        {open ? <IoClose size={20} aria-hidden="true" /> : <IoLayers size={20} aria-hidden="true" />}
-      </LayerButton>
+      {open ? (
+        <>
+          <LayerButton
+            $bgColor="#ffffff00"
+            onClick={toggle}
+            aria-label="Close layer options"
+            title="Close layer options"
+            style={buttonStyle}
+          >
+            <IoLayers size={20} />
+          </LayerButton>
 
-      {open && (
-        <LayersContainer id="layer-options">
-          <LayerControl />
-        </LayersContainer>
+          <LayersContainer isOpen={open}>
+            <LayerControl />
+          </LayersContainer>
+        </>
+      ) : (
+        <LayerButton
+          onClick={() => setIsOpen(prev => !prev)}
+          aria-label="Open layer options"
+          title="Open layer options"
+          style={buttonStyle}
+        >
+          <IoLayers size={20} />
+        </LayerButton>
       )}
     </Fragment>
   );
