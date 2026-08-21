@@ -43,6 +43,10 @@ reactapp/config/production.env
 coverage
 reactapp/wdyr.js
 
+docs
+.impeccable
+.context
+DESIGN.md
 
 # singularity
 
